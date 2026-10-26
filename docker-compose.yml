@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: student-progress-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: student_progress
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d student_progress']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: student-progress-api
+    restart: unless-stopped
+    ports:
+      - '4000:4000'
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: postgres://postgres:postgrespassword@postgres:5432/student_progress
+      JWT_SECRET: super_secure_jwt_secret_key_production_32chars
+      REFRESH_SECRET: super_secure_refresh_secret_key_production_32chars
+      CORS_ORIGINS: http://localhost:5173,http://localhost:3000
+      INITIAL_ADMIN_EMAIL: admin@entri.app
+      INITIAL_ADMIN_PASSWORD: AdminPassword123!
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'wget', '--no-verbose', '--tries=1', '--spider', 'http://localhost:4000/api/v1/health']
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  postgres_data:
