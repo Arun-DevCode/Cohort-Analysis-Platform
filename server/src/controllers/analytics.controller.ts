@@ -18,29 +18,39 @@ export class AnalyticsController {
   static async compare(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const batchId = req.params.batchId || req.params.id;
-      const fromSnapshotId = req.query.from as string;
-      const toSnapshotId = req.query.to as string;
+      let snapshotIds: string[] = [];
 
-      if (!fromSnapshotId || !toSnapshotId) {
-        res.status(400).json({
-          code: 'MISSING_QUERY_PARAMS',
-          message: "Both 'from' and 'to' snapshot IDs are required as query parameters",
+      if (req.query.snapshots) {
+        if (Array.isArray(req.query.snapshots)) {
+          snapshotIds = (req.query.snapshots as string[]).map((s) => String(s).trim()).filter(Boolean);
+        } else {
+          snapshotIds = (req.query.snapshots as string)
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean);
+        }
+      } else if (req.query.from && req.query.to) {
+        snapshotIds = [String(req.query.from).trim(), String(req.query.to).trim()];
+      }
+
+      if (snapshotIds.length < 2) {
+        res.status(422).json({
+          code: 'UNPROCESSABLE_ENTITY',
+          message: 'Only reports of the same course with different dates can be compared',
         });
         return;
       }
 
       const tolerance = req.query.tolerance ? Number(req.query.tolerance) : 2;
-      const comparison = await AnalyticsService.compareSnapshots(
+      const comparison = await AnalyticsService.compareMultiSnapshots(
         batchId,
-        fromSnapshotId,
-        toSnapshotId,
+        snapshotIds,
         tolerance
       );
 
       res.status(200).json({
         batchId,
-        fromSnapshotId,
-        toSnapshotId,
+        snapshotIds,
         ...comparison,
       });
     } catch (err) {

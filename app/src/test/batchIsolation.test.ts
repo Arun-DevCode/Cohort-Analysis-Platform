@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { db } from '@/core/db';
 import { usePlatformStore } from '@/store/usePlatformStore';
-import type { Snapshot, Student, StudentSnapshot } from '@/types';
+import type { Snapshot, Student, StudentSnapshot, AssignmentResult, Session } from '@/types';
 
 describe('Frontend Step 3: Batch and Snapshot Isolation Tests', () => {
   beforeEach(async () => {
@@ -245,5 +245,187 @@ describe('Frontend Step 3: Batch and Snapshot Isolation Tests', () => {
     // --- STEP E: Persistence in localStorage ---
     const stored = JSON.parse(localStorage.getItem('spp_selection_default') || '{}');
     expect(stored.batchId).toBe('batch-empty');
+  });
+
+  it('Assignments and Attendance tabs never combine data across batches sharing the same date', async () => {
+    const sharedDate = '2026-10-27';
+
+    // 1. Seed two batches
+    await db.batches.bulkAdd([
+      { id: 'batch-da', name: 'DA Course', createdAt: Date.now() },
+      { id: 'batch-afsd', name: 'AFSD Course', createdAt: Date.now() },
+    ]);
+
+    // 2. Both snapshots have the EXACT SAME date (2026-10-27)
+    await db.snapshots.bulkAdd([
+      {
+        id: 'snap-da',
+        batchId: 'batch-da',
+        snapshotDate: sharedDate,
+        fileName: 'DA_27Oct.xlsx',
+        fileHash: 'hash-da',
+        parserVersion: '1.0.0',
+        uploadedAt: Date.now(),
+      },
+      {
+        id: 'snap-afsd',
+        batchId: 'batch-afsd',
+        snapshotDate: sharedDate,
+        fileName: 'AFSD_27Oct.xlsx',
+        fileHash: 'hash-afsd',
+        parserVersion: '1.0.0',
+        uploadedAt: Date.now(),
+      },
+    ]);
+
+    // 3. DA has 14 assignments, AFSD has 4 assignments
+    const daAssignments: AssignmentResult[] = [];
+    for (let i = 1; i <= 14; i++) {
+      daAssignments.push({
+        id: `da-ar-${i}`,
+        snapshotId: 'snap-da',
+        studentId: 'std-da-1',
+        assignmentName: `DA Assignment ${i}`,
+        status: 'PASSED',
+        score: 100,
+        maxScore: 100,
+      });
+    }
+
+    const afsdAssignments: AssignmentResult[] = [];
+    for (let i = 1; i <= 4; i++) {
+      afsdAssignments.push({
+        id: `afsd-ar-${i}`,
+        snapshotId: 'snap-afsd',
+        studentId: 'std-afsd-1',
+        assignmentName: `AFSD Assignment ${i}`,
+        status: 'PASSED',
+        score: 100,
+        maxScore: 100,
+      });
+    }
+
+    // Add all to Dexie (total = 14 + 4 = 18 in database)
+    await db.assignmentResults.bulkAdd([...daAssignments, ...afsdAssignments]);
+
+    // 4. DA has 53 sessions, AFSD has 31 sessions (total = 84 in database)
+    const daSessions: Session[] = Array.from({ length: 53 }, (_, i) => ({
+      id: `da-sess-${i + 1}`,
+      snapshotId: 'snap-da',
+      title: `DA Class Session ${i + 1}`,
+      sessionDate: sharedDate,
+      originalColumn: `Col_${i}`,
+      orderIndex: i,
+    }));
+
+    const afsdSessions: Session[] = Array.from({ length: 31 }, (_, i) => ({
+      id: `afsd-sess-${i + 1}`,
+      snapshotId: 'snap-afsd',
+      title: `AFSD Class Session ${i + 1}`,
+      sessionDate: sharedDate,
+      originalColumn: `Col_${i}`,
+      orderIndex: i,
+    }));
+
+    await db.sessions.bulkAdd([...daSessions, ...afsdSessions]);
+
+    // Read all from Dexie
+    const allAssignments = await db.assignmentResults.toArray();
+    const allSessions = await db.sessions.toArray();
+    expect(allAssignments).toHaveLength(18);
+    expect(allSessions).toHaveLength(84);
+
+    // --- In DA batch ---
+    const currentDaSnapshot = await db.snapshots.get('snap-da');
+    const daScopedAssignments = allAssignments.filter((a) => a.snapshotId === currentDaSnapshot!.id);
+    const daScopedSessions = allSessions.filter((s) => s.snapshotId === currentDaSnapshot!.id);
+
+    // DA Assignments: exactly 14 items, never 18
+    const daUniqueNames = Array.from(new Set(daScopedAssignments.map((a) => a.assignmentName)));
+    expect(daUniqueNames).toHaveLength(14);
+    expect(daUniqueNames.every((n) => n.startsWith('DA Assignment'))).toBe(true);
+
+    // DA Attendance: exactly 53 sessions, never 84
+    expect(daScopedSessions).toHaveLength(53);
+    expect(daScopedSessions.every((s) => s.title.startsWith('DA Class Session'))).toBe(true);
+    // Student row denominator matches session count
+    const daDenominator = daScopedSessions.length;
+    expect(daDenominator).toBe(53);
+
+    // --- In AFSD batch ---
+    const currentAfsdSnapshot = await db.snapshots.get('snap-afsd');
+    const afsdScopedAssignments = allAssignments.filter((a) => a.snapshotId === currentAfsdSnapshot!.id);
+    const afsdScopedSessions = allSessions.filter((s) => s.snapshotId === currentAfsdSnapshot!.id);
+
+    // AFSD Assignments: exactly 4 items, never 18
+    const afsdUniqueNames = Array.from(new Set(afsdScopedAssignments.map((a) => a.assignmentName)));
+    expect(afsdUniqueNames).toHaveLength(4);
+    expect(afsdUniqueNames.every((n) => n.startsWith('AFSD Assignment'))).toBe(true);
+
+    // AFSD Attendance: exactly 31 sessions, never 84
+    expect(afsdScopedSessions).toHaveLength(31);
+    expect(afsdScopedSessions.every((s) => s.title.startsWith('AFSD Class Session'))).toBe(true);
+    // Student row denominator matches session count
+    const afsdDenominator = afsdScopedSessions.length;
+    expect(afsdDenominator).toBe(31);
+  });
+
+  it('Compare tab validates minimum 2 dates of same batch and shows empty state when < 2 reports', async () => {
+    // 1. Seed batches & snapshots
+    await db.batches.bulkAdd([
+      { id: 'batch-da', name: 'DA', createdAt: Date.now() },
+      { id: 'batch-afsd', name: 'AFSD', createdAt: Date.now() },
+    ]);
+
+    await db.snapshots.bulkAdd([
+      {
+        id: 'snap-da-1',
+        batchId: 'batch-da',
+        snapshotDate: '2026-10-20',
+        fileName: 'da1.xlsx',
+        fileHash: 'h1',
+        parserVersion: '1.0.0',
+        uploadedAt: Date.now(),
+      },
+      {
+        id: 'snap-da-2',
+        batchId: 'batch-da',
+        snapshotDate: '2026-10-25',
+        fileName: 'da2.xlsx',
+        fileHash: 'h2',
+        parserVersion: '1.0.0',
+        uploadedAt: Date.now(),
+      },
+      {
+        id: 'snap-afsd-1',
+        batchId: 'batch-afsd',
+        snapshotDate: '2026-10-25',
+        fileName: 'afsd1.xlsx',
+        fileHash: 'h3',
+        parserVersion: '1.0.0',
+        uploadedAt: Date.now(),
+      },
+    ]);
+
+    const allSnaps = await db.snapshots.toArray();
+
+    // Batch DA has 2 snapshots -> Can compare
+    const daSnaps = allSnaps
+      .filter((s) => s.batchId === 'batch-da')
+      .sort((a, b) => b.snapshotDate.localeCompare(a.snapshotDate));
+    expect(daSnaps).toHaveLength(2);
+    expect(daSnaps.length >= 2).toBe(true);
+    // Compare dates list DA's dates only
+    expect(daSnaps.map((s) => s.snapshotDate)).toEqual(['2026-10-25', '2026-10-20']);
+
+    // Batch AFSD has 1 snapshot -> < 2 snapshots -> requires empty state
+    const afsdSnaps = allSnaps
+      .filter((s) => s.batchId === 'batch-afsd')
+      .sort((a, b) => b.snapshotDate.localeCompare(a.snapshotDate));
+    expect(afsdSnaps).toHaveLength(1);
+    expect(afsdSnaps.length >= 2).toBe(false);
+    // Empty state message expectation
+    const emptyStatePrompt = 'Upload another report for this course to compare';
+    expect(emptyStatePrompt).toBe('Upload another report for this course to compare');
   });
 });

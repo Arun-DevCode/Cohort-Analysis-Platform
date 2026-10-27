@@ -177,8 +177,8 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                     <td className="px-3 py-2.5 text-right font-bold text-amber-600">
                       {item.metrics.liveOrRecordingPct}%
                     </td>
-                    <td className="px-3 py-2.5 text-right text-slate-500">
-                      {item.metrics.liveClassAttended} / {item.metrics.liveClassTotal}
+                    <td className="px-3 py-2.5 text-right text-slate-500 font-mono">
+                      {item.metrics.liveClassAttended} / {sessions.length}
                     </td>
                     <td className="px-3 py-2.5 text-right">
                       {isRecOnly ? (

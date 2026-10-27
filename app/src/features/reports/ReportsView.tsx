@@ -6,7 +6,6 @@ import { usePlatformStore } from '@/store/usePlatformStore';
 import { formatStudentName, formatStudentPhone } from '@/core/identity/mask';
 import { computeSnapshotAggregate, computeBatchScorecards, identifyAtRiskStudents } from '@/core/analytics';
 import type { Snapshot, StudentSnapshot, Student, Batch } from '@/types';
-// Dynamic imports for xlsx, jsPDF, and html2canvas are used below to keep them out of the critical bundle
 import { FileDown, FileSpreadsheet, CheckCircle2 } from 'lucide-react';
 
 interface ReportsViewProps {

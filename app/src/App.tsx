@@ -380,6 +380,8 @@ export const App: React.FC = () => {
                     snapshots={batchSnapshots}
                     allStudentSnapshots={batchStudentSnapshots}
                     students={allBatchStudents}
+                    assignmentResults={assignmentResults}
+                    sessions={sessions}
                   />
                 )}
 

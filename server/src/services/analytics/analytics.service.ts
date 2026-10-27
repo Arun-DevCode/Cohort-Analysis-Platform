@@ -9,7 +9,7 @@ import {
   sessions,
   attendance,
 } from '../../db/schema/index.js';
-import { eq, and, asc, desc } from 'drizzle-orm';
+import { eq, and, asc, desc, inArray } from 'drizzle-orm';
 import { AppError } from '../../middleware/errorHandler.js';
 import { computeAverage, computeDelta, getTrendDirection } from './metrics.js';
 import {
@@ -352,32 +352,244 @@ export class AnalyticsService {
   /**
    * B8: Compare Two Snapshots
    */
+  /**
+   * B8: Compare multiple snapshots (supports 2 or more snapshots)
+   */
+  static async compareMultiSnapshots(
+    batchId: string,
+    snapshotIds: string[],
+    tolerance = 2
+  ) {
+    if (snapshotIds.length < 2) {
+      throw new AppError(
+        'Only reports of the same course with different dates can be compared',
+        422,
+        'UNPROCESSABLE_ENTITY'
+      );
+    }
+
+    const db = getDb();
+    const snaps = await db.query.snapshots.findMany({
+      where: and(inArray(snapshots.id, snapshotIds), eq(snapshots.batchId, batchId)),
+      orderBy: [asc(snapshots.snapshotDate)],
+    });
+
+    if (snaps.length !== snapshotIds.length) {
+      throw new AppError(
+        'Only reports of the same course with different dates can be compared',
+        422,
+        'UNPROCESSABLE_ENTITY'
+      );
+    }
+
+    const dateSet = new Set(snaps.map((s) => s.snapshotDate));
+    if (dateSet.size !== snaps.length) {
+      throw new AppError(
+        'Only reports of the same course with different dates can be compared',
+        422,
+        'UNPROCESSABLE_ENTITY'
+      );
+    }
+
+    const sortedSnaps = [...snaps].sort((a, b) => a.snapshotDate.localeCompare(b.snapshotDate));
+    const firstSnap = sortedSnaps[0];
+    const lastSnap = sortedSnaps[sortedSnaps.length - 1];
+
+    const factsFirst = await this.getStudentFactsForSnapshot(firstSnap.id);
+    const factsLast = await this.getStudentFactsForSnapshot(lastSnap.id);
+
+    const baseComparison = compareSnapshotStudents(factsFirst, factsLast, tolerance);
+
+    // Identify students present in only one report
+    const mapFirst = new Map(factsFirst.map((f) => [f.studentId, f]));
+    const mapLast = new Map(factsLast.map((f) => [f.studentId, f]));
+
+    const onlyInFirst = factsFirst
+      .filter((f) => !mapLast.has(f.studentId))
+      .map((f) => ({
+        studentId: f.studentId,
+        externalStudentId: f.externalStudentId,
+        name: f.name,
+        phoneE164: f.phoneE164,
+      }));
+
+    const onlyInSecond = factsLast
+      .filter((f) => !mapFirst.has(f.studentId))
+      .map((f) => ({
+        studentId: f.studentId,
+        externalStudentId: f.externalStudentId,
+        name: f.name,
+        phoneE164: f.phoneE164,
+      }));
+
+    // Compute metric averages
+    const assignAvgFirst = computeAverage(factsFirst.map((f) => f.assignmentSubmissionPct));
+    const assignAvgLast = computeAverage(factsLast.map((f) => f.assignmentSubmissionPct));
+    const assignDelta = computeDelta(assignAvgLast, assignAvgFirst) ?? 0;
+
+    const consAvgFirst = computeAverage(factsFirst.map((f) => f.totalConsumptionPct));
+    const consAvgLast = computeAverage(factsLast.map((f) => f.totalConsumptionPct));
+    const consDelta = computeDelta(consAvgLast, consAvgFirst) ?? 0;
+
+    const liveAvgFirst = computeAverage(factsFirst.map((f) => f.livePct));
+    const liveAvgLast = computeAverage(factsLast.map((f) => f.livePct));
+    const liveDelta = computeDelta(liveAvgLast, liveAvgFirst) ?? 0;
+
+    const liveRecAvgFirst = computeAverage(factsFirst.map((f) => f.liveOrRecPct));
+    const liveRecAvgLast = computeAverage(factsLast.map((f) => f.liveOrRecPct));
+    const liveRecDelta = computeDelta(liveRecAvgLast, liveRecAvgFirst) ?? 0;
+
+    const formatArrow = (delta: number) => {
+      if (delta > 0) return `+${delta.toFixed(1)}% ↑`;
+      if (delta < 0) return `${delta.toFixed(1)}% ↓`;
+      return '0.0% →';
+    };
+
+    const metrics = {
+      assignment: {
+        oldValue: assignAvgFirst,
+        newValue: assignAvgLast,
+        deltaPts: assignDelta,
+        arrow: formatArrow(assignDelta),
+      },
+      content: {
+        oldValue: consAvgFirst,
+        newValue: consAvgLast,
+        deltaPts: consDelta,
+        arrow: formatArrow(consDelta),
+      },
+      attendance: {
+        oldValue: liveAvgFirst,
+        newValue: liveAvgLast,
+        deltaPts: liveDelta,
+        arrow: formatArrow(liveDelta),
+      },
+      liveOrRecAttendance: {
+        oldValue: liveRecAvgFirst,
+        newValue: liveRecAvgLast,
+        deltaPts: liveRecDelta,
+        arrow: formatArrow(liveRecDelta),
+      },
+    };
+
+    // Compare Assignment Items between firstSnap and lastSnap
+    const itemsFirst = await db.query.assignmentItems.findMany({
+      where: eq(assignmentItems.snapshotId, firstSnap.id),
+    });
+    const itemsLast = await db.query.assignmentItems.findMany({
+      where: eq(assignmentItems.snapshotId, lastSnap.id),
+    });
+
+    const itemNamesFirst = new Set(itemsFirst.map((i) => i.name));
+    const itemNamesLast = new Set(itemsLast.map((i) => i.name));
+    const allItemNames = new Set([
+      ...itemsFirst.map((i) => i.name),
+      ...itemsLast.map((i) => i.name),
+    ]);
+
+    const assignmentComparison: Array<{
+      name: string;
+      status: 'SAME' | 'NEW' | 'REMOVED';
+    }> = [];
+
+    for (const name of allItemNames) {
+      if (itemNamesFirst.has(name) && itemNamesLast.has(name)) {
+        assignmentComparison.push({ name, status: 'SAME' });
+      } else if (itemNamesLast.has(name)) {
+        assignmentComparison.push({ name, status: 'NEW' });
+      } else {
+        assignmentComparison.push({ name, status: 'REMOVED' });
+      }
+    }
+
+    // Compare Sessions between firstSnap and lastSnap
+    const sessionsFirst = await db.query.sessions.findMany({
+      where: eq(sessions.snapshotId, firstSnap.id),
+    });
+    const sessionsLast = await db.query.sessions.findMany({
+      where: eq(sessions.snapshotId, lastSnap.id),
+    });
+
+    const sessionTitlesFirst = new Set(sessionsFirst.map((s) => s.title));
+    const sessionTitlesLast = new Set(sessionsLast.map((s) => s.title));
+    const allSessionTitles = new Set([
+      ...sessionsFirst.map((s) => s.title),
+      ...sessionsLast.map((s) => s.title),
+    ]);
+
+    const sessionComparison: Array<{
+      title: string;
+      date: string | null;
+      status: 'SAME' | 'NEW' | 'REMOVED';
+    }> = [];
+
+    for (const title of allSessionTitles) {
+      const sLast = sessionsLast.find((s) => s.title === title);
+      const sFirst = sessionsFirst.find((s) => s.title === title);
+      const sessionDate = sLast?.sessionDate || sFirst?.sessionDate || null;
+
+      if (sessionTitlesFirst.has(title) && sessionTitlesLast.has(title)) {
+        sessionComparison.push({ title, date: sessionDate, status: 'SAME' });
+      } else if (sessionTitlesLast.has(title)) {
+        sessionComparison.push({ title, date: sessionDate, status: 'NEW' });
+      } else {
+        sessionComparison.push({ title, date: sessionDate, status: 'REMOVED' });
+      }
+    }
+
+    // Trend series when 3 or more snapshots are selected
+    let trendSeries:
+      | Array<{
+          snapshotId: string;
+          snapshotDate: string;
+          assignmentAvg: number;
+          consumptionAvg: number;
+          liveAttendanceAvg: number;
+          liveOrRecAvg: number;
+        }>
+      | undefined;
+
+    if (sortedSnaps.length >= 3) {
+      trendSeries = [];
+      for (const s of sortedSnaps) {
+        const sFacts = await this.getStudentFactsForSnapshot(s.id);
+        trendSeries.push({
+          snapshotId: s.id,
+          snapshotDate: s.snapshotDate,
+          assignmentAvg: computeAverage(sFacts.map((f) => f.assignmentSubmissionPct)),
+          consumptionAvg: computeAverage(sFacts.map((f) => f.totalConsumptionPct)),
+          liveAttendanceAvg: computeAverage(sFacts.map((f) => f.livePct)),
+          liveOrRecAvg: computeAverage(sFacts.map((f) => f.liveOrRecPct)),
+        });
+      }
+    }
+
+    return {
+      fromSnapshotId: firstSnap.id,
+      toSnapshotId: lastSnap.id,
+      fromSnapshotDate: firstSnap.snapshotDate,
+      toSnapshotDate: lastSnap.snapshotDate,
+      metrics,
+      comparisons: baseComparison.comparisons,
+      improved: baseComparison.improved,
+      same: baseComparison.same,
+      declined: baseComparison.declined,
+      matrix: baseComparison.matrix,
+      onlyInFirst,
+      onlyInSecond,
+      assignmentComparison,
+      sessionComparison,
+      ...(trendSeries ? { trendSeries } : {}),
+    };
+  }
+
   static async compareSnapshots(
     batchId: string,
     fromSnapshotId: string,
     toSnapshotId: string,
     tolerance = 2
   ) {
-    const db = getDb();
-    const snapA = await db.query.snapshots.findFirst({
-      where: and(eq(snapshots.id, fromSnapshotId), eq(snapshots.batchId, batchId)),
-    });
-    const snapB = await db.query.snapshots.findFirst({
-      where: and(eq(snapshots.id, toSnapshotId), eq(snapshots.batchId, batchId)),
-    });
-
-    if (!snapA || !snapB) {
-      throw new AppError('One or both snapshots not found in this batch', 404, 'NOT_FOUND');
-    }
-
-    const factsA = await this.getStudentFactsForSnapshot(fromSnapshotId);
-    const factsB = await this.getStudentFactsForSnapshot(toSnapshotId);
-
-    if (factsA.length === 0 || factsB.length === 0) {
-      throw new AppError('One or both snapshots do not contain student records', 404, 'NOT_FOUND');
-    }
-
-    return compareSnapshotStudents(factsA, factsB, tolerance);
+    return this.compareMultiSnapshots(batchId, [fromSnapshotId, toSnapshotId], tolerance);
   }
 
   /**

@@ -337,7 +337,7 @@ describe('Step 3: Batch Isolation & Single Batch Invariant Tests', () => {
     expect(afsdSnaps.body.snapshots).toHaveLength(1);
   });
 
-  it('4. A snapshot_id from AFSD requested under DA returns 404', async () => {
+  it('4. A snapshot_id from AFSD requested under DA returns 404 on every read endpoint', async () => {
     // Upload DA snapshot
     const resA = await request(app)
       .post(`/api/v1/batches/${daBatchId}/uploads`)
@@ -354,7 +354,7 @@ describe('Step 3: Batch Isolation & Single Batch Invariant Tests', () => {
       .field('snapshotDate', '2026-10-22');
     const afsdSnapId = resB.body.snapshot.snapshotId;
 
-    // Query AFSD snapshot under DA batch - all must return 404
+    // Query AFSD snapshot under DA batch - all single-report read endpoints must return 404
     const endpoints = [
       `/api/v1/batches/${daBatchId}/overview?snapshotId=${afsdSnapId}`,
       `/api/v1/batches/${daBatchId}/at-risk?snapshotId=${afsdSnapId}`,
@@ -363,13 +363,12 @@ describe('Step 3: Batch Isolation & Single Batch Invariant Tests', () => {
       `/api/v1/batches/${daBatchId}/attendance?snapshotId=${afsdSnapId}`,
       `/api/v1/batches/${daBatchId}/students?snapshotId=${afsdSnapId}`,
       `/api/v1/batches/${daBatchId}/report?snapshotId=${afsdSnapId}`,
-      `/api/v1/batches/${daBatchId}/compare?from=${daSnapId}&to=${afsdSnapId}`,
-      `/api/v1/batches/${daBatchId}/compare?from=${afsdSnapId}&to=${daSnapId}`,
     ];
 
     for (const ep of endpoints) {
       const res = await request(app).get(ep).set('Authorization', `Bearer ${adminToken}`);
       expect(res.status).toBe(404);
+      expect(res.body.message).toMatch(/not found/i);
     }
   });
 
@@ -482,5 +481,104 @@ describe('Step 3: Batch Isolation & Single Batch Invariant Tests', () => {
       .set('Authorization', `Bearer ${adminToken}`);
     expect(daSnaps.body.snapshots).toHaveLength(1);
     expect(daSnaps.body.snapshots[0].id).toBe(snap3Id);
+  });
+
+  it('7. Compare endpoint: validates same batch & different dates (422), returns deltas, diffs, and trend series', async () => {
+    // 1. Upload DA Date 1 (2026-10-20, 20 students)
+    const da1 = await request(app)
+      .post(`/api/v1/batches/${daBatchId}/uploads`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .attach('file', reportABuffer, 'DA_d1.xlsx')
+      .field('snapshotDate', '2026-10-20');
+    expect(da1.status).toBe(201);
+    const da1Id = da1.body.snapshot.snapshotId;
+
+    // 2. Upload DA Date 2 (2026-10-25, 18 students - slightly different cohort)
+    const daReport2 = await buildTestWorkbook({
+      studentCount: 18,
+      idPrefix: 'DA_STUDENT',
+      sharedStudentId: 'SHARED_STUDENT_01',
+      sharedStudentConsumption: 95,
+    });
+    const da2 = await request(app)
+      .post(`/api/v1/batches/${daBatchId}/uploads`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .attach('file', daReport2, 'DA_d2.xlsx')
+      .field('snapshotDate', '2026-10-25');
+    expect(da2.status).toBe(201);
+    const da2Id = da2.body.snapshot.snapshotId;
+
+    // 3. Upload DA Date 3 (2026-10-27, 20 students)
+    const da3 = await request(app)
+      .post(`/api/v1/batches/${daBatchId}/uploads`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .attach('file', reportABuffer, 'DA_d3.xlsx')
+      .field('snapshotDate', '2026-10-27');
+    expect(da3.status).toBe(201);
+    const da3Id = da3.body.snapshot.snapshotId;
+
+    // 4. Upload AFSD snapshot (2026-10-25)
+    const afsd = await request(app)
+      .post(`/api/v1/batches/${afsdBatchId}/uploads`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .attach('file', reportBBuffer, 'AFSD.xlsx')
+      .field('snapshotDate', '2026-10-25');
+    expect(afsd.status).toBe(201);
+    const afsdId = afsd.body.snapshot.snapshotId;
+
+    // A. Cross-batch comparison (DA vs AFSD) MUST return 422
+    const crossRes1 = await request(app)
+      .get(`/api/v1/batches/${daBatchId}/compare?snapshots=${da1Id},${afsdId}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(crossRes1.status).toBe(422);
+    expect(crossRes1.body.message).toBe('Only reports of the same course with different dates can be compared');
+
+    // B. Same snapshot or date twice MUST return 422
+    const sameRes = await request(app)
+      .get(`/api/v1/batches/${daBatchId}/compare?snapshots=${da1Id},${da1Id}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(sameRes.status).toBe(422);
+    expect(sameRes.body.message).toBe('Only reports of the same course with different dates can be compared');
+
+    // C. Fewer than 2 snapshots MUST return 422
+    const singleRes = await request(app)
+      .get(`/api/v1/batches/${daBatchId}/compare?snapshots=${da1Id}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(singleRes.status).toBe(422);
+    expect(singleRes.body.message).toBe('Only reports of the same course with different dates can be compared');
+
+    // D. Valid 2-date comparison within DA (Date 1 vs Date 2) MUST succeed
+    const valid2Res = await request(app)
+      .get(`/api/v1/batches/${daBatchId}/compare?snapshots=${da1Id},${da2Id}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(valid2Res.status).toBe(200);
+    expect(valid2Res.body.fromSnapshotDate).toBe('2026-10-20');
+    expect(valid2Res.body.toSnapshotDate).toBe('2026-10-25');
+    expect(valid2Res.body.metrics).toBeDefined();
+    expect(valid2Res.body.metrics.assignment).toHaveProperty('deltaPts');
+    expect(valid2Res.body.metrics.assignment).toHaveProperty('arrow');
+    expect(valid2Res.body.metrics.content).toHaveProperty('deltaPts');
+    expect(valid2Res.body.metrics.content).toHaveProperty('arrow');
+    expect(valid2Res.body.metrics.attendance).toHaveProperty('deltaPts');
+    expect(valid2Res.body.metrics.attendance).toHaveProperty('arrow');
+    // Students appearing in only one report are identified
+    expect(valid2Res.body.onlyInFirst.length).toBeGreaterThanOrEqual(1);
+    // Assignment items diffed
+    expect(valid2Res.body.assignmentComparison).toBeDefined();
+    expect(Array.isArray(valid2Res.body.assignmentComparison)).toBe(true);
+    // Sessions diffed
+    expect(valid2Res.body.sessionComparison).toBeDefined();
+    expect(Array.isArray(valid2Res.body.sessionComparison)).toBe(true);
+
+    // E. 3-date comparison returns trendSeries
+    const valid3Res = await request(app)
+      .get(`/api/v1/batches/${daBatchId}/compare?snapshots=${da1Id},${da2Id},${da3Id}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(valid3Res.status).toBe(200);
+    expect(valid3Res.body.trendSeries).toBeDefined();
+    expect(valid3Res.body.trendSeries).toHaveLength(3);
+    expect(valid3Res.body.trendSeries[0].snapshotDate).toBe('2026-10-20');
+    expect(valid3Res.body.trendSeries[1].snapshotDate).toBe('2026-10-25');
+    expect(valid3Res.body.trendSeries[2].snapshotDate).toBe('2026-10-27');
   });
 });
