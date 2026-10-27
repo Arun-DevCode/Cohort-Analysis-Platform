@@ -52,9 +52,34 @@ interface PlatformState {
   logoutFromBackend: () => Promise<void>;
 }
 
+function getStoredSelection(userId?: string) {
+  const key = `spp_selection_${userId || 'default'}`;
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : { batchId: null, snapshotId: null };
+  } catch {
+    return { batchId: null, snapshotId: null };
+  }
+}
+
+function setStoredSelection(userId?: string, selection?: { batchId: string | null; snapshotId: string | null }) {
+  const key = `spp_selection_${userId || 'default'}`;
+  try {
+    if (selection) {
+      localStorage.setItem(key, JSON.stringify(selection));
+    } else {
+      localStorage.removeItem(key);
+    }
+  } catch {
+    // ignore
+  }
+}
+
+const initialSelection = getStoredSelection(apiClient.getUser()?.id);
+
 export const usePlatformStore = create<PlatformState>((set, get) => ({
-  selectedBatchId: null,
-  selectedSnapshotId: null,
+  selectedBatchId: initialSelection.batchId,
+  selectedSnapshotId: initialSelection.snapshotId,
   activeTab: 'overview',
   settings: DEFAULT_SETTINGS,
   isUploadModalOpen: false,
@@ -64,8 +89,22 @@ export const usePlatformStore = create<PlatformState>((set, get) => ({
   backendUser: apiClient.getUser(),
   isLoginModalOpen: false,
 
-  setSelectedBatchId: (batchId) => set({ selectedBatchId: batchId }),
-  setSelectedSnapshotId: (snapshotId) => set({ selectedSnapshotId: snapshotId }),
+  setSelectedBatchId: (batchId) =>
+    set((state) => {
+      setStoredSelection(state.backendUser?.id, {
+        batchId,
+        snapshotId: state.selectedSnapshotId,
+      });
+      return { selectedBatchId: batchId, selectedStudentId: null };
+    }),
+  setSelectedSnapshotId: (snapshotId) =>
+    set((state) => {
+      setStoredSelection(state.backendUser?.id, {
+        batchId: state.selectedBatchId,
+        snapshotId,
+      });
+      return { selectedSnapshotId: snapshotId };
+    }),
   setActiveTab: (tab) => set({ activeTab: tab }),
   setUploadModalOpen: (open) => set({ isUploadModalOpen: open }),
   setLoginModalOpen: (open) => set({ isLoginModalOpen: open }),

@@ -129,6 +129,15 @@ batchRouter.get(
   requireBatchAccess(),
   AnalyticsController.getAttendance
 );
+
+// Students in batch snapshot
+batchRouter.get(
+  '/:id/students',
+  authorize(['admin', 'manager', 'trainer']),
+  requireBatchAccess(),
+  AnalyticsController.getStudents
+);
+
 import { ReportController } from '../controllers/report.controller.js';
 
 // B13: Report Export (exceljs workbook)

@@ -119,10 +119,15 @@ export const Navbar: React.FC<NavbarProps> = ({ batches, snapshots }) => {
                 <select
                   value={currentBatch?.id || ''}
                   onChange={(e) => {
-                    setSelectedBatchId(e.target.value);
-                    const bSnaps = snapshots.filter((s) => s.batchId === e.target.value);
+                    const newBatchId = e.target.value;
+                    setSelectedBatchId(newBatchId);
+                    const bSnaps = snapshots
+                      .filter((s) => s.batchId === newBatchId)
+                      .sort((a, b) => a.snapshotDate.localeCompare(b.snapshotDate));
                     if (bSnaps.length > 0) {
                       setSelectedSnapshotId(bSnaps[bSnaps.length - 1].id);
+                    } else {
+                      setSelectedSnapshotId(null);
                     }
                   }}
                   className="border border-border/80 rounded-lg px-2.5 py-1 text-xs font-medium text-foreground bg-surface hover:bg-muted/30 focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer transition-colors"
@@ -148,11 +153,15 @@ export const Navbar: React.FC<NavbarProps> = ({ batches, snapshots }) => {
                 <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <span className="font-medium text-foreground">Report Date:</span>
                   <select
-                    value={selectedSnapshotId || sortedBatchSnapshots[sortedBatchSnapshots.length - 1].id}
+                    value={
+                      selectedSnapshotId && sortedBatchSnapshots.some((s) => s.id === selectedSnapshotId)
+                        ? selectedSnapshotId
+                        : sortedBatchSnapshots[sortedBatchSnapshots.length - 1].id
+                    }
                     onChange={(e) => setSelectedSnapshotId(e.target.value)}
                     className="border border-border/80 rounded-lg px-2.5 py-1 text-xs font-medium text-foreground bg-surface hover:bg-muted/30 focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer transition-colors num"
                   >
-                    {sortedBatchSnapshots.map((s) => (
+                    {[...sortedBatchSnapshots].reverse().map((s) => (
                       <option key={s.id} value={s.id}>
                         {formatSnapshotDate(s.snapshotDate)}
                       </option>

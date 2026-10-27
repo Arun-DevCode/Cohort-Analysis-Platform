@@ -247,6 +247,46 @@ class ApiClient {
     const data = await this.request<{ snapshots: BackendSnapshot[] }>(`/batches/${batchId}/snapshots`);
     return data.snapshots;
   }
+
+  // --- Batch Analytics & Students ---
+  async getBatchOverview(batchId: string, snapshotId?: string): Promise<Record<string, unknown>> {
+    const query = snapshotId ? `?snapshotId=${encodeURIComponent(snapshotId)}` : '';
+    return this.request<Record<string, unknown>>(`/batches/${batchId}/overview${query}`);
+  }
+
+  async getBatchStudents(batchId: string, snapshotId?: string): Promise<{ batchId: string; snapshotId: string; totalStudents: number; students: Record<string, unknown>[] }> {
+    const query = snapshotId ? `?snapshotId=${encodeURIComponent(snapshotId)}` : '';
+    return this.request<{ batchId: string; snapshotId: string; totalStudents: number; students: Record<string, unknown>[] }>(`/batches/${batchId}/students${query}`);
+  }
+
+  async getBatchAssignments(batchId: string, snapshotId?: string): Promise<Record<string, unknown>> {
+    const query = snapshotId ? `?snapshotId=${encodeURIComponent(snapshotId)}` : '';
+    return this.request<Record<string, unknown>>(`/batches/${batchId}/assignments${query}`);
+  }
+
+  async getBatchContent(batchId: string, snapshotId?: string): Promise<Record<string, unknown>> {
+    const query = snapshotId ? `?snapshotId=${encodeURIComponent(snapshotId)}` : '';
+    return this.request<Record<string, unknown>>(`/batches/${batchId}/content${query}`);
+  }
+
+  async getBatchAttendance(batchId: string, snapshotId?: string): Promise<Record<string, unknown>> {
+    const query = snapshotId ? `?snapshotId=${encodeURIComponent(snapshotId)}` : '';
+    return this.request<Record<string, unknown>>(`/batches/${batchId}/attendance${query}`);
+  }
+
+  async getBatchAtRisk(batchId: string, snapshotId?: string): Promise<Record<string, unknown>> {
+    const query = snapshotId ? `?snapshotId=${encodeURIComponent(snapshotId)}` : '';
+    return this.request<Record<string, unknown>>(`/batches/${batchId}/at-risk${query}`);
+  }
+
+  async compareSnapshots(batchId: string, fromId: string, toId: string): Promise<Record<string, unknown>> {
+    return this.request<Record<string, unknown>>(`/batches/${batchId}/compare?from=${encodeURIComponent(fromId)}&to=${encodeURIComponent(toId)}`);
+  }
+
+  async getStudentProfile(studentId: string, batchId?: string): Promise<Record<string, unknown>> {
+    const query = batchId ? `?batchId=${encodeURIComponent(batchId)}` : '';
+    return this.request<Record<string, unknown>>(`/students/${studentId}${query}`);
+  }
 }
 
 export const apiClient = new ApiClient();

@@ -8,7 +8,7 @@ import {
   sessions,
   attendance,
 } from '../db/schema/index.js';
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, and } from 'drizzle-orm';
 import { AppError } from '../middleware/errorHandler.js';
 import { identifyAtRiskStudents } from './analytics/atRisk.js';
 import { AuditService } from './audit.service.js';
@@ -50,11 +50,11 @@ export class ReportService {
     const [snapshot] = await db
       .select()
       .from(snapshots)
-      .where(eq(snapshots.id, snapshotId))
+      .where(and(eq(snapshots.id, snapshotId), eq(snapshots.batchId, batchId)))
       .limit(1);
 
     if (!snapshot) {
-      throw new AppError('Snapshot not found', 404);
+      throw new AppError('Snapshot not found in this batch', 404);
     }
 
     // 3. Fetch student snapshot rows

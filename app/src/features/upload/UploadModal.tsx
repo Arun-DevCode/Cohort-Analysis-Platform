@@ -136,35 +136,59 @@ export const UploadModal: React.FC = () => {
 
       setParseResult(result);
 
-      // Smart inference for batch name and batch code if not already set by user
-      const detectedName = result.detectedBatchName || 'Cohort Batch';
-      const inferredBatchName = batchName.trim() ? batchName.trim() : detectedName;
-
-      // Extract batch code from filename or detected batch name if blank
-      let inferredCode = batchCode.trim();
-      if (!inferredCode) {
-        const match = selectedFile.name.match(/batch[_\s-]*(\w+)/i) || detectedName.match(/batch[_\s-]*(\w+)/i);
-        if (match) {
-          inferredCode = `BATCH-${match[1]}`;
-        } else {
-          inferredCode = `BATCH-${new Date().getFullYear()}`;
+      // Detect snapshot date from file name or parsed sessions
+      let detectedDate: string | null = null;
+      const fnDateMatch = selectedFile.name.match(/(\d{4})[-_](\d{2})[-_](\d{2})/);
+      if (fnDateMatch) {
+        detectedDate = `${fnDateMatch[1]}-${fnDateMatch[2]}-${fnDateMatch[3]}`;
+      } else if (result.sessions.length > 0) {
+        const validDates = result.sessions
+          .map((s) => s.sessionDate)
+          .filter((d): d is string => !!d && /^\d{4}-\d{2}-\d{2}$/.test(d))
+          .sort();
+        if (validDates.length > 0) {
+          detectedDate = validDates[validDates.length - 1];
         }
       }
 
-      const existingBatch = batches.find(
-        (b) =>
-          b.name.toLowerCase() === inferredBatchName.toLowerCase() ||
-          (inferredCode && b.externalBatchId?.toLowerCase() === inferredCode.toLowerCase())
-      );
+      const activeDate = detectedDate || snapshotDate || new Date().toISOString().split('T')[0];
+      setSnapshotDate(activeDate);
 
-      const targetBatchId = existingBatch ? existingBatch.id : batchId || `batch_${Date.now()}`;
+      // Keep user-selected batch if valid; otherwise infer
+      const isExistingSelected = batches.some((b) => b.id === batchId);
+      let targetBatchId = batchId;
 
-      setBatchId(targetBatchId);
-      setBatchName(existingBatch ? existingBatch.name : inferredBatchName);
-      setBatchCode(existingBatch?.externalBatchId || inferredCode);
+      if (!isExistingSelected) {
+        const detectedName = result.detectedBatchName || 'Cohort Batch';
+        const inferredBatchName = batchName.trim() ? batchName.trim() : detectedName;
 
-      // Check if duplicate report exists for this batch on selected date
-      const existing = await checkExistingSnapshot(targetBatchId, snapshotDate);
+        let inferredCode = batchCode.trim();
+        if (!inferredCode) {
+          const match = selectedFile.name.match(/batch[_\s-]*(\w+)/i) || detectedName.match(/batch[_\s-]*(\w+)/i);
+          inferredCode = match ? `BATCH-${match[1]}` : `BATCH-${new Date().getFullYear()}`;
+        }
+
+        const matchingBatch = batches.find(
+          (b) =>
+            b.name.toLowerCase() === inferredBatchName.toLowerCase() ||
+            (inferredCode && b.externalBatchId?.toLowerCase() === inferredCode.toLowerCase())
+        );
+
+        if (matchingBatch) {
+          targetBatchId = matchingBatch.id;
+          setBatchId(matchingBatch.id);
+          setBatchName(matchingBatch.name);
+          setBatchCode(matchingBatch.externalBatchId || '');
+        } else {
+          targetBatchId = batchId || `batch_${Date.now()}`;
+          setBatchId(targetBatchId);
+          setBatchName(inferredBatchName);
+          setBatchCode(inferredCode);
+        }
+      }
+
+      // Check if duplicate report exists for this batch on detected date
+      const existing = await checkExistingSnapshot(targetBatchId, activeDate);
       setExistingFound(!!existing);
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'Failed to parse workbook');
@@ -202,6 +226,12 @@ export const UploadModal: React.FC = () => {
 
   const handleConfirmSave = async () => {
     if (!parseResult || !batchId || !batchName.trim() || !snapshotDate) return;
+
+    if (existingFound && !isOverwriting) {
+      setErrorMsg(`A report for batch '${batchName}' on ${snapshotDate} already exists. Enable overwrite to replace.`);
+      return;
+    }
+
     setIsSaving(true);
     setErrorMsg(null);
 

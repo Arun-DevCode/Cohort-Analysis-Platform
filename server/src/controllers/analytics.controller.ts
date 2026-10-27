@@ -120,4 +120,16 @@ export class AnalyticsController {
       next(err);
     }
   }
+
+  static async getStudents(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const batchId = req.params.batchId || req.params.id;
+      const snapshotId = req.query.snapshotId as string | undefined;
+
+      const studentsData = await AnalyticsService.getBatchStudents(batchId, snapshotId);
+      res.status(200).json(studentsData);
+    } catch (err) {
+      next(err);
+    }
+  }
 }

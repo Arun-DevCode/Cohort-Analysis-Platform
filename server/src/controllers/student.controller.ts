@@ -6,7 +6,8 @@ export class StudentController {
     try {
       const user = req.user!;
       const { id } = req.params;
-      const profile = await StudentService.getStudentProfile(id, user);
+      const batchId = req.query.batchId as string | undefined;
+      const profile = await StudentService.getStudentProfile(id, user, batchId);
       res.status(200).json(profile);
     } catch (err) {
       next(err);

@@ -100,26 +100,41 @@ export const App: React.FC = () => {
   }, [loadSettings, hydrateAuth, checkBackendStatus, setSelectedBatchId, setSelectedSnapshotId]);
 
   // Live queries from IndexedDB - scoped so inactive tab tables are not held in memory
-  const batches = useLiveQuery(() => db.batches.toArray()) || [];
-  const snapshots = useLiveQuery(() => db.snapshots.toArray()) || [];
-  const students = useLiveQuery(() => db.students.toArray()) || [];
-  const studentSnapshots = useLiveQuery(() => db.studentSnapshots.toArray()) || [];
-  const assignmentResults = useLiveQuery(
+  const liveBatches = useLiveQuery(() => db.batches.toArray());
+  const batches = React.useMemo(() => liveBatches || [], [liveBatches]);
+
+  const liveSnapshots = useLiveQuery(() => db.snapshots.toArray());
+  const snapshots = React.useMemo(() => liveSnapshots || [], [liveSnapshots]);
+
+  const liveStudents = useLiveQuery(() => db.students.toArray());
+  const students = React.useMemo(() => liveStudents || [], [liveStudents]);
+
+  const liveStudentSnapshots = useLiveQuery(() => db.studentSnapshots.toArray());
+  const studentSnapshots = React.useMemo(() => liveStudentSnapshots || [], [liveStudentSnapshots]);
+
+  const liveAssignmentResults = useLiveQuery(
     () => (activeTab === 'assignments' || activeTab === 'students' ? db.assignmentResults.toArray() : []),
     [activeTab]
-  ) || [];
-  const weeklyConsumption = useLiveQuery(
+  );
+  const assignmentResults = React.useMemo(() => liveAssignmentResults || [], [liveAssignmentResults]);
+
+  const liveWeeklyConsumption = useLiveQuery(
     () => (activeTab === 'content' || activeTab === 'students' ? db.weeklyConsumption.toArray() : []),
     [activeTab]
-  ) || [];
-  const sessions = useLiveQuery(
+  );
+  const weeklyConsumption = React.useMemo(() => liveWeeklyConsumption || [], [liveWeeklyConsumption]);
+
+  const liveSessions = useLiveQuery(
     () => (activeTab === 'attendance' || activeTab === 'students' ? db.sessions.toArray() : []),
     [activeTab]
-  ) || [];
-  const attendance = useLiveQuery(
+  );
+  const sessions = React.useMemo(() => liveSessions || [], [liveSessions]);
+
+  const liveAttendance = useLiveQuery(
     () => (activeTab === 'attendance' || activeTab === 'students' ? db.attendance.toArray() : []),
     [activeTab]
-  ) || [];
+  );
+  const attendance = React.useMemo(() => liveAttendance || [], [liveAttendance]);
 
   // Determine current active batch
   const currentBatch =
@@ -128,16 +143,19 @@ export const App: React.FC = () => {
   // Sync selectedBatchId if needed
   const firstBatchId = batches[0]?.id;
   useEffect(() => {
-    if (firstBatchId && !selectedBatchId) {
+    if (firstBatchId && (!selectedBatchId || !batches.some((b) => b.id === selectedBatchId))) {
       setSelectedBatchId(firstBatchId);
     }
-  }, [firstBatchId, selectedBatchId, setSelectedBatchId]);
+  }, [firstBatchId, selectedBatchId, batches, setSelectedBatchId]);
 
   // Filter snapshots for current batch
-  const batchSnapshots = snapshots.filter((s) => s.batchId === currentBatch?.id);
-  const sortedBatchSnapshots = [...batchSnapshots].sort((a, b) =>
-    a.snapshotDate.localeCompare(b.snapshotDate)
-  );
+  const batchSnapshots = React.useMemo(() => {
+    return snapshots.filter((s) => s.batchId === currentBatch?.id);
+  }, [snapshots, currentBatch?.id]);
+
+  const sortedBatchSnapshots = React.useMemo(() => {
+    return [...batchSnapshots].sort((a, b) => a.snapshotDate.localeCompare(b.snapshotDate));
+  }, [batchSnapshots]);
 
   // Determine current snapshot (default to latest)
   const currentSnapshot =
@@ -145,18 +163,83 @@ export const App: React.FC = () => {
     sortedBatchSnapshots[sortedBatchSnapshots.length - 1] ||
     null;
 
+  // Sync selectedSnapshotId when batch changes or snapshot is removed
+  useEffect(() => {
+    if (currentBatch && sortedBatchSnapshots.length > 0) {
+      const snapExists = sortedBatchSnapshots.some((s) => s.id === selectedSnapshotId);
+      if (!selectedSnapshotId || !snapExists) {
+        setSelectedSnapshotId(sortedBatchSnapshots[sortedBatchSnapshots.length - 1].id);
+      }
+    } else if (sortedBatchSnapshots.length === 0 && selectedSnapshotId) {
+      setSelectedSnapshotId(null);
+    }
+  }, [currentBatch, sortedBatchSnapshots, selectedSnapshotId, setSelectedSnapshotId]);
+
   // Determine previous snapshot for deltas
   const currentIndex = sortedBatchSnapshots.findIndex(
     (s) => s.id === currentSnapshot?.id
   );
   const previousSnapshot = currentIndex > 0 ? sortedBatchSnapshots[currentIndex - 1] : null;
 
-  const currentStudentSnapshots = studentSnapshots.filter(
-    (s) => s.snapshotId === currentSnapshot?.id
-  );
-  const previousStudentSnapshots = previousSnapshot
-    ? studentSnapshots.filter((s) => s.snapshotId === previousSnapshot.id)
-    : [];
+  const currentStudentSnapshots = React.useMemo(() => {
+    return studentSnapshots.filter((s) => s.snapshotId === currentSnapshot?.id);
+  }, [studentSnapshots, currentSnapshot?.id]);
+
+  const previousStudentSnapshots = React.useMemo(() => {
+    return previousSnapshot
+      ? studentSnapshots.filter((s) => s.snapshotId === previousSnapshot.id)
+      : [];
+  }, [studentSnapshots, previousSnapshot]);
+
+  // Student snapshots belonging to this batch (for trends & compare)
+  const batchSnapshotIdSet = React.useMemo(() => {
+    return new Set(batchSnapshots.map((s) => s.id));
+  }, [batchSnapshots]);
+
+  const batchStudentSnapshots = React.useMemo(() => {
+    return studentSnapshots.filter((s) => batchSnapshotIdSet.has(s.snapshotId));
+  }, [studentSnapshots, batchSnapshotIdSet]);
+
+  // Students belonging to current snapshot of this batch
+  const currentStudentIdSet = React.useMemo(() => {
+    return new Set(currentStudentSnapshots.map((s) => s.studentId));
+  }, [currentStudentSnapshots]);
+
+  const currentBatchStudents = React.useMemo(() => {
+    return students.filter((st) => currentStudentIdSet.has(st.id));
+  }, [students, currentStudentIdSet]);
+
+  // Students belonging to any snapshot of this batch (for student profile view)
+  const allBatchStudentIdSet = React.useMemo(() => {
+    return new Set(batchStudentSnapshots.map((s) => s.studentId));
+  }, [batchStudentSnapshots]);
+
+  const allBatchStudents = React.useMemo(() => {
+    return students.filter((st) => allBatchStudentIdSet.has(st.id));
+  }, [students, allBatchStudentIdSet]);
+
+  // Scoped weekly consumption (for current snapshot)
+  const currentWeeklyConsumption = React.useMemo(() => {
+    return weeklyConsumption.filter((w) => w.snapshotId === currentSnapshot?.id);
+  }, [weeklyConsumption, currentSnapshot?.id]);
+
+  // Scoped assignment results (for current snapshot)
+  const currentAssignmentResults = React.useMemo(() => {
+    return assignmentResults.filter((a) => a.snapshotId === currentSnapshot?.id);
+  }, [assignmentResults, currentSnapshot?.id]);
+
+  // Scoped sessions and attendance (for current snapshot)
+  const currentSessions = React.useMemo(() => {
+    return sessions.filter((s) => s.snapshotId === currentSnapshot?.id);
+  }, [sessions, currentSnapshot?.id]);
+
+  const currentSessionIdSet = React.useMemo(() => {
+    return new Set(currentSessions.map((s) => s.id));
+  }, [currentSessions]);
+
+  const currentAttendance = React.useMemo(() => {
+    return attendance.filter((a) => currentSessionIdSet.has(a.sessionId));
+  }, [attendance, currentSessionIdSet]);
 
   // If user is not authenticated, show proper Auth (Register / Login) page
   if (!backendUser) {
@@ -248,55 +331,55 @@ export const App: React.FC = () => {
                     previousSnapshot={previousSnapshot}
                     currentStudentSnapshots={currentStudentSnapshots}
                     previousStudentSnapshots={previousStudentSnapshots}
-                    allStudentSnapshots={studentSnapshots}
-                    students={students}
+                    allStudentSnapshots={batchStudentSnapshots}
+                    students={currentBatchStudents}
                   />
                 )}
 
                 {activeTab === 'assignments' && (
                   <AssignmentsView
                     currentSnapshot={currentSnapshot}
-                    assignmentResults={assignmentResults}
-                    students={students}
+                    assignmentResults={currentAssignmentResults}
+                    students={currentBatchStudents}
                   />
                 )}
 
                 {activeTab === 'content' && (
                   <ContentView
                     currentSnapshot={currentSnapshot}
-                    weeklyConsumption={weeklyConsumption}
+                    weeklyConsumption={currentWeeklyConsumption}
                     studentSnapshots={currentStudentSnapshots}
-                    students={students}
+                    students={currentBatchStudents}
                   />
                 )}
 
                 {activeTab === 'attendance' && (
                   <AttendanceView
                     currentSnapshot={currentSnapshot}
-                    sessions={sessions}
-                    attendance={attendance}
+                    sessions={currentSessions}
+                    attendance={currentAttendance}
                     studentSnapshots={currentStudentSnapshots}
-                    students={students}
+                    students={currentBatchStudents}
                   />
                 )}
 
                 {activeTab === 'students' && (
                   <StudentProfileView
-                    students={students}
+                    students={allBatchStudents}
                     snapshots={batchSnapshots}
-                    allStudentSnapshots={studentSnapshots}
-                    assignmentResults={assignmentResults}
-                    weeklyConsumption={weeklyConsumption}
-                    sessions={sessions}
-                    attendance={attendance}
+                    allStudentSnapshots={batchStudentSnapshots}
+                    assignmentResults={currentAssignmentResults}
+                    weeklyConsumption={currentWeeklyConsumption}
+                    sessions={currentSessions}
+                    attendance={currentAttendance}
                   />
                 )}
 
                 {activeTab === 'compare' && (
                   <CompareView
                     snapshots={batchSnapshots}
-                    allStudentSnapshots={studentSnapshots}
-                    students={students}
+                    allStudentSnapshots={batchStudentSnapshots}
+                    students={allBatchStudents}
                   />
                 )}
 
@@ -304,7 +387,7 @@ export const App: React.FC = () => {
                   <AtRiskView
                     currentSnapshot={currentSnapshot}
                     currentStudentSnapshots={currentStudentSnapshots}
-                    students={students}
+                    students={currentBatchStudents}
                   />
                 )}
 
@@ -315,7 +398,7 @@ export const App: React.FC = () => {
                     previousSnapshot={previousSnapshot}
                     currentStudentSnapshots={currentStudentSnapshots}
                     previousStudentSnapshots={previousStudentSnapshots}
-                    students={students}
+                    students={currentBatchStudents}
                   />
                 )}
 

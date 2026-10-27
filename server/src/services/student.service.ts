@@ -20,7 +20,8 @@ import { AppError } from '../middleware/errorHandler.js';
 export class StudentService {
   static async getStudentProfile(
     studentId: string,
-    user: { userId: string; role: string }
+    user: { userId: string; role: string },
+    batchId?: string
   ) {
     const db = getDb();
 
@@ -51,6 +52,10 @@ export class StudentService {
       throw new AppError('Student not found', 404);
     }
 
+    if (batchId && !allBatchIds.includes(batchId)) {
+      throw new AppError('Student does not belong to this batch', 404);
+    }
+
     let accessibleBatchIds = allBatchIds;
 
     // 3. RBAC check for trainer / scoping to accessible batches
@@ -74,10 +79,18 @@ export class StudentService {
         throw new AppError('Student not found', 404);
       }
 
+      if (batchId && !accessibleBatchIds.includes(batchId)) {
+        throw new AppError('Batch not found or not accessible', 404);
+      }
+
       // Filter student's visible batches to only those this user can access
       studentBatchRows = studentBatchRows.filter((b) =>
         accessibleBatchIds.includes(b.batchId)
       );
+    }
+
+    if (batchId) {
+      studentBatchRows = studentBatchRows.filter((b) => b.batchId === batchId);
     }
 
     // 4. Fetch longitudinal history across accessible snapshots only
@@ -108,7 +121,9 @@ export class StudentService {
       .where(
         and(
           eq(studentSnapshots.studentId, studentId),
-          inArray(snapshots.batchId, accessibleBatchIds)
+          batchId
+            ? eq(snapshots.batchId, batchId)
+            : inArray(snapshots.batchId, accessibleBatchIds)
         )
       )
       .orderBy(snapshots.snapshotDate);

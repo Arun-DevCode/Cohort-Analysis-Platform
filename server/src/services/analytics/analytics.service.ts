@@ -9,7 +9,8 @@ import {
   sessions,
   attendance,
 } from '../../db/schema/index.js';
-import { eq, and, asc } from 'drizzle-orm';
+import { eq, and, asc, desc } from 'drizzle-orm';
+import { AppError } from '../../middleware/errorHandler.js';
 import { computeAverage, computeDelta, getTrendDirection } from './metrics.js';
 import {
   compareSnapshotStudents,
@@ -108,6 +109,31 @@ export class AnalyticsService {
   }
 
   /**
+   * Helper to resolve and validate that a snapshot belongs to a batch
+   */
+  static async resolveBatchSnapshot(batchId: string, snapshotId?: string) {
+    const db = getDb();
+    if (snapshotId) {
+      const snap = await db.query.snapshots.findFirst({
+        where: and(eq(snapshots.id, snapshotId), eq(snapshots.batchId, batchId)),
+      });
+      if (!snap) {
+        throw new AppError(`Snapshot with id ${snapshotId} not found in this batch`, 404, 'NOT_FOUND');
+      }
+      return snap;
+    }
+
+    const latest = await db.query.snapshots.findFirst({
+      where: eq(snapshots.batchId, batchId),
+      orderBy: [desc(snapshots.snapshotDate)],
+    });
+    if (!latest) {
+      throw new AppError('No snapshots available for this batch', 404, 'NOT_FOUND');
+    }
+    return latest;
+  }
+
+  /**
    * B7: Batch Overview Endpoint
    */
   static async getBatchOverview(
@@ -123,7 +149,7 @@ export class AnalyticsService {
     });
 
     if (allSnapshots.length === 0) {
-      throw new Error('No snapshots available for this batch');
+      throw new AppError('No snapshots available for this batch', 404, 'NOT_FOUND');
     }
 
     // 2. Determine current & previous snapshot
@@ -132,7 +158,7 @@ export class AnalyticsService {
       : allSnapshots.length - 1;
 
     if (currentIndex === -1) {
-      throw new Error(`Snapshot with id ${targetSnapshotId} not found in this batch`);
+      throw new AppError(`Snapshot with id ${targetSnapshotId} not found in this batch`, 404, 'NOT_FOUND');
     }
 
     const currentSnapshot = allSnapshots[currentIndex];
@@ -332,11 +358,23 @@ export class AnalyticsService {
     toSnapshotId: string,
     tolerance = 2
   ) {
+    const db = getDb();
+    const snapA = await db.query.snapshots.findFirst({
+      where: and(eq(snapshots.id, fromSnapshotId), eq(snapshots.batchId, batchId)),
+    });
+    const snapB = await db.query.snapshots.findFirst({
+      where: and(eq(snapshots.id, toSnapshotId), eq(snapshots.batchId, batchId)),
+    });
+
+    if (!snapA || !snapB) {
+      throw new AppError('One or both snapshots not found in this batch', 404, 'NOT_FOUND');
+    }
+
     const factsA = await this.getStudentFactsForSnapshot(fromSnapshotId);
     const factsB = await this.getStudentFactsForSnapshot(toSnapshotId);
 
     if (factsA.length === 0 || factsB.length === 0) {
-      throw new Error('One or both snapshots do not contain student records');
+      throw new AppError('One or both snapshots do not contain student records', 404, 'NOT_FOUND');
     }
 
     return compareSnapshotStudents(factsA, factsB, tolerance);
@@ -349,17 +387,9 @@ export class AnalyticsService {
     batchId: string,
     snapshotId?: string
   ): Promise<AtRiskStudentResult[]> {
+    const snap = await this.resolveBatchSnapshot(batchId, snapshotId);
+    const targetId = snap.id;
     const db = getDb();
-
-    let targetId = snapshotId;
-    if (!targetId) {
-      const latest = await db.query.snapshots.findFirst({
-        where: eq(snapshots.batchId, batchId),
-        orderBy: [asc(snapshots.snapshotDate)],
-      });
-      if (!latest) throw new Error('No snapshots available for this batch');
-      targetId = latest.id;
-    }
 
     const rows = await db
       .select({
@@ -398,16 +428,9 @@ export class AnalyticsService {
    * B10: Per-Assignment Stats
    */
   static async getAssignmentStats(batchId: string, snapshotId?: string) {
+    const snap = await this.resolveBatchSnapshot(batchId, snapshotId);
+    const targetId = snap.id;
     const db = getDb();
-    let targetId = snapshotId;
-    if (!targetId) {
-      const latest = await db.query.snapshots.findFirst({
-        where: eq(snapshots.batchId, batchId),
-        orderBy: [asc(snapshots.snapshotDate)],
-      });
-      if (!latest) throw new Error('No snapshots available for this batch');
-      targetId = latest.id;
-    }
 
     const items = await db.query.assignmentItems.findMany({
       where: eq(assignmentItems.snapshotId, targetId),
@@ -472,16 +495,9 @@ export class AnalyticsService {
    * B10: Week-wise Content Consumption
    */
   static async getContentStats(batchId: string, snapshotId?: string) {
+    const snap = await this.resolveBatchSnapshot(batchId, snapshotId);
+    const targetId = snap.id;
     const db = getDb();
-    let targetId = snapshotId;
-    if (!targetId) {
-      const latest = await db.query.snapshots.findFirst({
-        where: eq(snapshots.batchId, batchId),
-        orderBy: [asc(snapshots.snapshotDate)],
-      });
-      if (!latest) throw new Error('No snapshots available for this batch');
-      targetId = latest.id;
-    }
 
     const weeks = await db
       .select({
@@ -536,16 +552,9 @@ export class AnalyticsService {
    * B10: Session-wise Attendance Stats
    */
   static async getAttendanceStats(batchId: string, snapshotId?: string) {
+    const snap = await this.resolveBatchSnapshot(batchId, snapshotId);
+    const targetId = snap.id;
     const db = getDb();
-    let targetId = snapshotId;
-    if (!targetId) {
-      const latest = await db.query.snapshots.findFirst({
-        where: eq(snapshots.batchId, batchId),
-        orderBy: [asc(snapshots.snapshotDate)],
-      });
-      if (!latest) throw new Error('No snapshots available for this batch');
-      targetId = latest.id;
-    }
 
     const sessionList = await db.query.sessions.findMany({
       where: eq(sessions.snapshotId, targetId),
@@ -590,6 +599,62 @@ export class AnalyticsService {
       snapshotId: targetId,
       sessions: sessionStats,
       recordingOnlyLearners,
+    };
+  }
+
+  /**
+   * Students in Batch Snapshot Endpoint
+   */
+  static async getBatchStudents(batchId: string, snapshotId?: string) {
+    const snap = await this.resolveBatchSnapshot(batchId, snapshotId);
+    const targetId = snap.id;
+    const db = getDb();
+
+    const rows = await db
+      .select({
+        id: students.id,
+        studentId: students.externalStudentId,
+        name: students.name,
+        phone: students.phoneE164,
+        totalConsumptionPct: studentSnapshots.totalConsumptionPct,
+        videoPct: studentSnapshots.videoPct,
+        pdfPct: studentSnapshots.pdfPct,
+        quizPct: studentSnapshots.quizPct,
+        flashcardsPct: studentSnapshots.flashcardsPct,
+        aiContentPct: studentSnapshots.aiContentPct,
+        assignmentSubmissionPct: studentSnapshots.assignmentSubmissionPct,
+        assignmentScorePct: studentSnapshots.assignmentScorePct,
+        livePct: studentSnapshots.livePct,
+        liveOrRecPct: studentSnapshots.liveOrRecPct,
+        segment: studentSnapshots.segment,
+        assignmentsTotal: studentSnapshots.assignmentsTotal,
+        assignmentsSubmitted: studentSnapshots.assignmentsSubmitted,
+        liveTotal: studentSnapshots.liveTotal,
+        liveAttended: studentSnapshots.liveAttended,
+      })
+      .from(studentSnapshots)
+      .innerJoin(students, eq(studentSnapshots.studentId, students.id))
+      .where(eq(studentSnapshots.snapshotId, targetId))
+      .orderBy(students.name);
+
+    return {
+      batchId,
+      snapshotId: targetId,
+      snapshotDate: snap.snapshotDate,
+      totalStudents: rows.length,
+      students: rows.map((r) => ({
+        ...r,
+        totalConsumptionPct: Number(r.totalConsumptionPct),
+        videoPct: Number(r.videoPct),
+        pdfPct: Number(r.pdfPct),
+        quizPct: Number(r.quizPct),
+        flashcardsPct: Number(r.flashcardsPct),
+        aiContentPct: Number(r.aiContentPct),
+        assignmentSubmissionPct: Number(r.assignmentSubmissionPct),
+        assignmentScorePct: Number(r.assignmentScorePct),
+        livePct: Number(r.livePct),
+        liveOrRecPct: Number(r.liveOrRecPct),
+      })),
     };
   }
 }
