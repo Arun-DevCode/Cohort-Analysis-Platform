@@ -14,19 +14,26 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/api': {
-        target: 'http://127.0.0.1:4000',
+      "/api": {
+        target: "https://api-cohortpregressreport.onrender.com",
         changeOrigin: true,
         configure: (proxy) => {
-          proxy.on('error', (_err, _req, res) => {
-            if (res && 'writeHead' in res && typeof res.writeHead === 'function') {
+          proxy.on("error", (_err, _req, res) => {
+            if (
+              res &&
+              "writeHead" in res &&
+              typeof res.writeHead === "function"
+            ) {
               res.writeHead(503, {
-                'Content-Type': 'application/json',
+                "Content-Type": "application/json",
               });
-              res.end(JSON.stringify({
-                status: 'error',
-                message: 'Backend API is currently unavailable. Ensure the server is running on port 4000.',
-              }));
+              res.end(
+                JSON.stringify({
+                  status: "error",
+                  message:
+                    "Backend API is currently unavailable. Ensure the server is running on port 4000.",
+                }),
+              );
             }
           });
         },
@@ -39,18 +46,23 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id: string) {
-          if (id.includes('node_modules')) {
-            if (id.includes('react') || id.includes('react-dom') || id.includes('zustand') || id.includes('dexie')) {
-              return 'vendor-core';
+          if (id.includes("node_modules")) {
+            if (
+              id.includes("react") ||
+              id.includes("react-dom") ||
+              id.includes("zustand") ||
+              id.includes("dexie")
+            ) {
+              return "vendor-core";
             }
-            if (id.includes('recharts') || id.includes('d3-')) {
-              return 'vendor-charts';
+            if (id.includes("recharts") || id.includes("d3-")) {
+              return "vendor-charts";
             }
-            if (id.includes('@tanstack/react-table')) {
-              return 'vendor-table';
+            if (id.includes("@tanstack/react-table")) {
+              return "vendor-table";
             }
-            if (id.includes('lucide-react')) {
-              return 'vendor-icons';
+            if (id.includes("lucide-react")) {
+              return "vendor-icons";
             }
           }
         },
