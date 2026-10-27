@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useDeferredValue } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { Card } from '@/ui/Card';
 import { Button } from '@/ui/Button';
 import { Modal } from '@/ui/Modal';
@@ -19,64 +20,100 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
   assignmentResults,
   students,
 }) => {
-  const { settings, setSelectedStudentId, setActiveTab } = usePlatformStore();
+  const { settings, setSelectedStudentId, setActiveTab } = usePlatformStore(
+    useShallow((s) => ({
+      settings: s.settings,
+      setSelectedStudentId: s.setSelectedStudentId,
+      setActiveTab: s.setActiveTab,
+    }))
+  );
   const [selectedAssignmentForModal, setSelectedAssignmentForModal] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const deferredSearch = useDeferredValue(search);
 
-  const studentMap = new Map<string, Student>(students.map((s) => [s.id, s]));
+  // Memoize student lookup map by students array reference
+  const studentMap = useMemo(
+    () => new Map<string, Student>(students.map((s) => [s.id, s])),
+    [students]
+  );
 
-  // Group assignments by assignmentName
-  const assignmentMap = new Map<string, AssignmentResult[]>();
-  for (const res of assignmentResults) {
-    const list = assignmentMap.get(res.assignmentName) || [];
-    list.push(res);
-    assignmentMap.set(res.assignmentName, list);
-  }
+  // Group assignments by assignmentName with memoization
+  const assignmentMap = useMemo(() => {
+    const map = new Map<string, AssignmentResult[]>();
+    for (const res of assignmentResults) {
+      const list = map.get(res.assignmentName);
+      if (list) {
+        list.push(res);
+      } else {
+        map.set(res.assignmentName, [res]);
+      }
+    }
+    return map;
+  }, [assignmentResults]);
 
-  const assignmentStats = Array.from(assignmentMap.entries()).map(([name, records]) => {
-    const total = records.length;
-    const passed = records.filter((r) => r.status === 'PASSED').length;
-    const delayed = records.filter((r) => r.status === 'DELAYED').length;
-    const pending = records.filter(
-      (r) => r.status === 'SUBMISSION_PENDING' || r.status === 'NOT_SUBMITTED'
-    ).length;
-    const submitted = passed + delayed;
-    const submissionRate = total > 0 ? Number(((submitted / total) * 100).toFixed(1)) : 0;
+  // Aggregate stats only when assignmentMap changes
+  const assignmentStats = useMemo(() => {
+    return Array.from(assignmentMap.entries()).map(([name, records]) => {
+      let passed = 0;
+      let delayed = 0;
+      let pending = 0;
+      let scoreSum = 0;
+      let scoreCount = 0;
 
-    const scoredRecords = records.filter((r) => r.score !== null);
-    const avgScore =
-      scoredRecords.length > 0
-        ? Number(
-            (
-              scoredRecords.reduce((acc, r) => acc + (r.score || 0), 0) /
-              scoredRecords.length
-            ).toFixed(1)
-          )
-        : null;
+      for (const r of records) {
+        if (r.status === 'PASSED') passed++;
+        else if (r.status === 'DELAYED') delayed++;
+        else if (r.status === 'SUBMISSION_PENDING' || r.status === 'NOT_SUBMITTED') pending++;
 
-    return {
-      name,
-      total,
-      submitted,
-      passed,
-      delayed,
-      pending,
-      submissionRate,
-      avgScore,
-      records,
-    };
-  });
+        if (r.score !== null) {
+          scoreSum += r.score;
+          scoreCount++;
+        }
+      }
 
-  const activeRecords = selectedAssignmentForModal
-    ? assignmentMap.get(selectedAssignmentForModal) || []
-    : [];
+      const total = records.length;
+      const submitted = passed + delayed;
+      const submissionRate = total > 0 ? Number(((submitted / total) * 100).toFixed(1)) : 0;
+      const avgScore = scoreCount > 0 ? Number((scoreSum / scoreCount).toFixed(1)) : null;
 
-  const pendingStudents = activeRecords
-    .filter((r) => r.status === 'SUBMISSION_PENDING' || r.status === 'NOT_SUBMITTED')
-    .map((r) => ({
-      record: r,
-      student: studentMap.get(r.studentId),
-    }));
+      return {
+        name,
+        total,
+        submitted,
+        passed,
+        delayed,
+        pending,
+        submissionRate,
+        avgScore,
+        records,
+      };
+    });
+  }, [assignmentMap]);
+
+  const activeRecords = useMemo(() => {
+    return selectedAssignmentForModal ? assignmentMap.get(selectedAssignmentForModal) || [] : [];
+  }, [selectedAssignmentForModal, assignmentMap]);
+
+  const pendingStudents = useMemo(() => {
+    return activeRecords
+      .filter((r) => r.status === 'SUBMISSION_PENDING' || r.status === 'NOT_SUBMITTED')
+      .map((r) => ({
+        record: r,
+        student: studentMap.get(r.studentId),
+      }));
+  }, [activeRecords, studentMap]);
+
+  const filteredPendingStudents = useMemo(() => {
+    const query = deferredSearch.toLowerCase().trim();
+    if (!query) return pendingStudents;
+
+    return pendingStudents.filter(
+      (item) =>
+        item.student?.name.toLowerCase().includes(query) ||
+        item.student?.phoneE164.includes(query) ||
+        item.record.studentId.toLowerCase().includes(query)
+    );
+  }, [pendingStudents, deferredSearch]);
 
   return (
     <div className="space-y-6">
@@ -179,14 +216,7 @@ export const AssignmentsView: React.FC<AssignmentsViewProps> = ({
           </div>
 
           <div className="max-h-80 overflow-y-auto divide-y divide-slate-100">
-            {pendingStudents
-              .filter(
-                (item) =>
-                  !search ||
-                  item.student?.name.toLowerCase().includes(search.toLowerCase()) ||
-                  item.student?.phoneE164.includes(search)
-              )
-              .map(({ record, student }) => (
+            {filteredPendingStudents.map(({ record, student }) => (
                 <div
                   key={record.studentId}
                   className="py-2.5 flex items-center justify-between"

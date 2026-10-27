@@ -1,24 +1,39 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, lazy, Suspense } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { usePlatformStore } from '@/store/usePlatformStore';
 import { db } from '@/core/db';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Navbar } from '@/app/Navbar';
 import { AuthPage } from '@/features/auth/AuthPage';
-import { UploadModal } from '@/features/upload/UploadModal';
-import { LoginModal } from '@/features/auth/LoginModal';
-import { OverviewDashboard } from '@/features/dashboard/OverviewDashboard';
-import { AssignmentsView } from '@/features/assignments/AssignmentsView';
-import { ContentView } from '@/features/content/ContentView';
-import { AttendanceView } from '@/features/attendance/AttendanceView';
-import { StudentProfileView } from '@/features/students/StudentProfileView';
-import { CompareView } from '@/features/compare/CompareView';
-import { AtRiskView } from '@/features/atrisk/AtRiskView';
-import { ReportsView } from '@/features/reports/ReportsView';
-import { BackupView } from '@/features/backup/BackupView';
-import { SettingsView } from '@/features/settings/SettingsView';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { UploadCloud, Sparkles, BookOpen, CheckCircle2 } from 'lucide-react';
+
+// Lazy-loaded feature views and modals to keep the initial JS bundle minimal
+const OverviewDashboard = lazy(() => import('@/features/dashboard/OverviewDashboard').then((m) => ({ default: m.OverviewDashboard })));
+const AssignmentsView = lazy(() => import('@/features/assignments/AssignmentsView').then((m) => ({ default: m.AssignmentsView })));
+const ContentView = lazy(() => import('@/features/content/ContentView').then((m) => ({ default: m.ContentView })));
+const AttendanceView = lazy(() => import('@/features/attendance/AttendanceView').then((m) => ({ default: m.AttendanceView })));
+const StudentProfileView = lazy(() => import('@/features/students/StudentProfileView').then((m) => ({ default: m.StudentProfileView })));
+const CompareView = lazy(() => import('@/features/compare/CompareView').then((m) => ({ default: m.CompareView })));
+const AtRiskView = lazy(() => import('@/features/atrisk/AtRiskView').then((m) => ({ default: m.AtRiskView })));
+const ReportsView = lazy(() => import('@/features/reports/ReportsView').then((m) => ({ default: m.ReportsView })));
+const BackupView = lazy(() => import('@/features/backup/BackupView').then((m) => ({ default: m.BackupView })));
+const SettingsView = lazy(() => import('@/features/settings/SettingsView').then((m) => ({ default: m.SettingsView })));
+const UploadModal = lazy(() => import('@/features/upload/UploadModal').then((m) => ({ default: m.UploadModal })));
+const LoginModal = lazy(() => import('@/features/auth/LoginModal').then((m) => ({ default: m.LoginModal })));
+
+const ViewLoadingFallback: React.FC = () => (
+  <div className="space-y-4 animate-pulse py-4">
+    <div className="h-6 bg-muted/60 rounded-md w-1/4" />
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {Array.from({ length: 4 }).map((_, i) => (
+        <div key={i} className="h-28 bg-muted/50 rounded-[12px]" />
+      ))}
+    </div>
+    <div className="h-64 bg-muted/40 rounded-[14px]" />
+  </div>
+);
 
 export const App: React.FC = () => {
   const {
@@ -32,7 +47,20 @@ export const App: React.FC = () => {
     hydrateAuth,
     checkBackendStatus,
     backendUser,
-  } = usePlatformStore();
+  } = usePlatformStore(
+    useShallow((s) => ({
+      selectedBatchId: s.selectedBatchId,
+      setSelectedBatchId: s.setSelectedBatchId,
+      selectedSnapshotId: s.selectedSnapshotId,
+      setSelectedSnapshotId: s.setSelectedSnapshotId,
+      activeTab: s.activeTab,
+      setUploadModalOpen: s.setUploadModalOpen,
+      loadSettings: s.loadSettings,
+      hydrateAuth: s.hydrateAuth,
+      checkBackendStatus: s.checkBackendStatus,
+      backendUser: s.backendUser,
+    }))
+  );
 
   useEffect(() => {
     loadSettings();
@@ -71,15 +99,27 @@ export const App: React.FC = () => {
     purgeAllLearnerData();
   }, [loadSettings, hydrateAuth, checkBackendStatus, setSelectedBatchId, setSelectedSnapshotId]);
 
-  // Live queries from IndexedDB
+  // Live queries from IndexedDB - scoped so inactive tab tables are not held in memory
   const batches = useLiveQuery(() => db.batches.toArray()) || [];
   const snapshots = useLiveQuery(() => db.snapshots.toArray()) || [];
   const students = useLiveQuery(() => db.students.toArray()) || [];
   const studentSnapshots = useLiveQuery(() => db.studentSnapshots.toArray()) || [];
-  const assignmentResults = useLiveQuery(() => db.assignmentResults.toArray()) || [];
-  const weeklyConsumption = useLiveQuery(() => db.weeklyConsumption.toArray()) || [];
-  const sessions = useLiveQuery(() => db.sessions.toArray()) || [];
-  const attendance = useLiveQuery(() => db.attendance.toArray()) || [];
+  const assignmentResults = useLiveQuery(
+    () => (activeTab === 'assignments' || activeTab === 'students' ? db.assignmentResults.toArray() : []),
+    [activeTab]
+  ) || [];
+  const weeklyConsumption = useLiveQuery(
+    () => (activeTab === 'content' || activeTab === 'students' ? db.weeklyConsumption.toArray() : []),
+    [activeTab]
+  ) || [];
+  const sessions = useLiveQuery(
+    () => (activeTab === 'attendance' || activeTab === 'students' ? db.sessions.toArray() : []),
+    [activeTab]
+  ) || [];
+  const attendance = useLiveQuery(
+    () => (activeTab === 'attendance' || activeTab === 'students' ? db.attendance.toArray() : []),
+    [activeTab]
+  ) || [];
 
   // Determine current active batch
   const currentBatch =
@@ -200,7 +240,7 @@ export const App: React.FC = () => {
           /* Active Content Tabs */
           <div>
             {currentBatch && currentSnapshot ? (
-              <>
+              <Suspense fallback={<ViewLoadingFallback />}>
                 {activeTab === 'overview' && (
                   <OverviewDashboard
                     snapshots={batchSnapshots}
@@ -282,7 +322,7 @@ export const App: React.FC = () => {
                 {activeTab === 'backup' && <BackupView />}
 
                 {activeTab === 'settings' && <SettingsView />}
-              </>
+              </Suspense>
             ) : (
               <div className="rounded-[14px] bg-surface p-12 text-center shadow-[var(--shadow-tint-md)] max-w-md mx-auto my-12 space-y-4">
                 <div className="w-12 h-12 rounded-[10px] bg-primary/10 text-primary flex items-center justify-center mx-auto">
@@ -308,8 +348,10 @@ export const App: React.FC = () => {
         )}
       </main>
 
-      <UploadModal />
-      <LoginModal />
+      <Suspense fallback={null}>
+        <UploadModal />
+        <LoginModal />
+      </Suspense>
     </div>
   );
 };

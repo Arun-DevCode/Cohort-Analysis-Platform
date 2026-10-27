@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Modal } from '@/ui/Modal';
 import { Button } from '@/components/ui/button';
-import { parseWorkbook } from '@/core/parsers/workbookParser';
 import { saveSnapshotTransaction, checkExistingSnapshot } from '@/core/db/snapshotRepository';
 import { db } from '@/core/db';
 import { usePlatformStore } from '@/store/usePlatformStore';
@@ -128,6 +127,7 @@ export const UploadModal: React.FC = () => {
         });
       } catch {
         // Fallback for test or single-thread environments
+        const { parseWorkbook } = await import('@/core/parsers/workbookParser');
         result = await parseWorkbook(buffer, selectedFile.name, {
           high: settings.highThreshold,
           medium: settings.mediumThreshold,

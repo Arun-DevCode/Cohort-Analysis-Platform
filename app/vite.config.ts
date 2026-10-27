@@ -33,6 +33,30 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    target: "es2022",
+    chunkSizeWarningLimit: 600,
+    rollupOptions: {
+      output: {
+        manualChunks(id: string) {
+          if (id.includes('node_modules')) {
+            if (id.includes('react') || id.includes('react-dom') || id.includes('zustand') || id.includes('dexie')) {
+              return 'vendor-core';
+            }
+            if (id.includes('recharts') || id.includes('d3-')) {
+              return 'vendor-charts';
+            }
+            if (id.includes('@tanstack/react-table')) {
+              return 'vendor-table';
+            }
+            if (id.includes('lucide-react')) {
+              return 'vendor-icons';
+            }
+          }
+        },
+      },
+    },
+  },
   worker: {
     format: "es",
   },

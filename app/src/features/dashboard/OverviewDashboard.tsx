@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { Card } from '@/ui/Card';
 import { Button } from '@/ui/Button';
 import { DeltaBadge, SegmentBadge } from '@/ui/Badge';
@@ -55,72 +56,101 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
   allStudentSnapshots,
   students,
 }) => {
-  const { settings, setActiveTab, setSelectedStudentId, setUploadModalOpen } = usePlatformStore();
+  const { settings, setActiveTab, setSelectedStudentId, setUploadModalOpen } = usePlatformStore(
+    useShallow((s) => ({
+      settings: s.settings,
+      setActiveTab: s.setActiveTab,
+      setSelectedStudentId: s.setSelectedStudentId,
+      setUploadModalOpen: s.setUploadModalOpen,
+    }))
+  );
   const [showTrendTable, setShowTrendTable] = useState(false);
   const [showSegmentTable, setShowSegmentTable] = useState(false);
 
-  const studentMap = new Map<string, Student>(students.map((s) => [s.id, s]));
+  const studentMap = useMemo(
+    () => new Map<string, Student>(students.map((s) => [s.id, s])),
+    [students]
+  );
 
   // Compute aggregates for all snapshots in chronological order
-  const sortedSnapshots = [...snapshots].sort((a, b) =>
-    a.snapshotDate.localeCompare(b.snapshotDate)
-  );
+  const sortedSnapshots = useMemo(() => {
+    return [...snapshots].sort((a, b) => a.snapshotDate.localeCompare(b.snapshotDate));
+  }, [snapshots]);
 
-  const snapshotAggregates = sortedSnapshots.map((snap) => {
-    const studentSnaps = allStudentSnapshots.filter((s) => s.snapshotId === snap.id);
-    return computeSnapshotAggregate(snap.id, snap.snapshotDate, studentSnaps);
-  });
+  const snapshotAggregates = useMemo(() => {
+    return sortedSnapshots.map((snap) => {
+      const studentSnaps = allStudentSnapshots.filter((s) => s.snapshotId === snap.id);
+      return computeSnapshotAggregate(snap.id, snap.snapshotDate, studentSnaps);
+    });
+  }, [sortedSnapshots, allStudentSnapshots]);
 
-  const currentAgg = computeSnapshotAggregate(
-    currentSnapshot.id,
-    currentSnapshot.snapshotDate,
-    currentStudentSnapshots
-  );
+  const currentAgg = useMemo(() => {
+    return computeSnapshotAggregate(
+      currentSnapshot.id,
+      currentSnapshot.snapshotDate,
+      currentStudentSnapshots
+    );
+  }, [currentSnapshot, currentStudentSnapshots]);
 
-  const previousAgg = previousSnapshot
-    ? computeSnapshotAggregate(
-        previousSnapshot.id,
-        previousSnapshot.snapshotDate,
-        previousStudentSnapshots
-      )
-    : null;
+  const previousAgg = useMemo(() => {
+    return previousSnapshot
+      ? computeSnapshotAggregate(
+          previousSnapshot.id,
+          previousSnapshot.snapshotDate,
+          previousStudentSnapshots
+        )
+      : null;
+  }, [previousSnapshot, previousStudentSnapshots]);
 
-  const scorecards = computeBatchScorecards(currentAgg, previousAgg);
+  const scorecards = useMemo(() => {
+    return computeBatchScorecards(currentAgg, previousAgg);
+  }, [currentAgg, previousAgg]);
 
   // At-risk students
-  const atRiskList = identifyAtRiskStudents(currentStudentSnapshots, studentMap);
+  const atRiskList = useMemo(() => {
+    return identifyAtRiskStudents(currentStudentSnapshots, studentMap);
+  }, [currentStudentSnapshots, studentMap]);
 
   // Calculate student-level deltas for Top Improvers
-  const prevStudentMap = new Map<string, StudentSnapshot>(
-    previousStudentSnapshots.map((s) => [s.studentId, s])
-  );
+  const prevStudentMap = useMemo(() => {
+    return new Map<string, StudentSnapshot>(
+      previousStudentSnapshots.map((s) => [s.studentId, s])
+    );
+  }, [previousStudentSnapshots]);
 
-  const studentDeltas = currentStudentSnapshots
-    .map((curr) => {
-      const prev = prevStudentMap.get(curr.studentId);
-      const student = studentMap.get(curr.studentId);
-      const name = student?.name || curr.studentId;
-      if (!prev) {
-        return { studentId: curr.studentId, name, avgDelta: 0, current: curr };
-      }
-      const asgnDelta = curr.metrics.assignmentSubmissionPct - prev.metrics.assignmentSubmissionPct;
-      const consDelta = curr.metrics.totalConsumptionPct - prev.metrics.totalConsumptionPct;
-      const attDelta = curr.metrics.liveClassPct - prev.metrics.liveClassPct;
-      const avgDelta = Number(((asgnDelta + consDelta + attDelta) / 3).toFixed(1));
-      return { studentId: curr.studentId, name, avgDelta, current: curr };
-    })
-    .sort((a, b) => b.avgDelta - a.avgDelta);
+  const studentDeltas = useMemo(() => {
+    return currentStudentSnapshots
+      .map((curr) => {
+        const prev = prevStudentMap.get(curr.studentId);
+        const student = studentMap.get(curr.studentId);
+        const name = student?.name || curr.studentId;
+        if (!prev) {
+          return { studentId: curr.studentId, name, avgDelta: 0, current: curr };
+        }
+        const asgnDelta = curr.metrics.assignmentSubmissionPct - prev.metrics.assignmentSubmissionPct;
+        const consDelta = curr.metrics.totalConsumptionPct - prev.metrics.totalConsumptionPct;
+        const attDelta = curr.metrics.liveClassPct - prev.metrics.liveClassPct;
+        const avgDelta = Number(((asgnDelta + consDelta + attDelta) / 3).toFixed(1));
+        return { studentId: curr.studentId, name, avgDelta, current: curr };
+      })
+      .sort((a, b) => b.avgDelta - a.avgDelta);
+  }, [currentStudentSnapshots, prevStudentMap, studentMap]);
 
-  const topImprovers = studentDeltas.filter((s) => s.avgDelta > 0).slice(0, 5);
+  const topImprovers = useMemo(() => {
+    return studentDeltas.filter((s) => s.avgDelta > 0).slice(0, 5);
+  }, [studentDeltas]);
 
   // Sort at-risk by severity (more reasons first, then lower consumption)
-  const sortedAtRiskList = [...atRiskList].sort((a, b) => {
-    if (b.reasons.length !== a.reasons.length) {
-      return b.reasons.length - a.reasons.length;
-    }
-    return a.totalConsumptionPct - b.totalConsumptionPct;
-  });
-  const needsAttention = sortedAtRiskList.slice(0, 5);
+  const sortedAtRiskList = useMemo(() => {
+    return [...atRiskList].sort((a, b) => {
+      if (b.reasons.length !== a.reasons.length) {
+        return b.reasons.length - a.reasons.length;
+      }
+      return a.totalConsumptionPct - b.totalConsumptionPct;
+    });
+  }, [atRiskList]);
+
+  const needsAttention = useMemo(() => sortedAtRiskList.slice(0, 5), [sortedAtRiskList]);
 
   return (
     <div className="space-y-8">

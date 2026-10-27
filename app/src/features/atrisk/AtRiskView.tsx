@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useDeferredValue } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { Card } from '@/ui/Card';
 import { Button } from '@/ui/Button';
 import { SegmentBadge } from '@/ui/Badge';
@@ -19,27 +20,45 @@ export const AtRiskView: React.FC<AtRiskViewProps> = ({
   currentStudentSnapshots,
   students,
 }) => {
-  const { settings, setSelectedStudentId, setActiveTab } = usePlatformStore();
+  const { settings, setSelectedStudentId, setActiveTab } = usePlatformStore(
+    useShallow((s) => ({
+      settings: s.settings,
+      setSelectedStudentId: s.setSelectedStudentId,
+      setActiveTab: s.setActiveTab,
+    }))
+  );
   const [search, setSearch] = useState('');
   const [selectedReasonFilter, setSelectedReasonFilter] = useState<string>('ALL');
+  const deferredSearch = useDeferredValue(search);
 
-  const studentMap = new Map<string, Student>(students.map((s) => [s.id, s]));
-  const atRiskList = identifyAtRiskStudents(currentStudentSnapshots, studentMap);
-
-  // Extract all unique reason tags
-  const allReasons = Array.from(
-    new Set(atRiskList.flatMap((s) => s.reasons))
+  const studentMap = useMemo(
+    () => new Map<string, Student>(students.map((s) => [s.id, s])),
+    [students]
   );
 
-  const filteredList = atRiskList.filter((item) => {
-    const matchesSearch =
-      !search ||
-      item.studentName.toLowerCase().includes(search.toLowerCase()) ||
-      item.phoneE164.includes(search);
-    const matchesFilter =
-      selectedReasonFilter === 'ALL' || item.reasons.includes(selectedReasonFilter);
-    return matchesSearch && matchesFilter;
-  });
+  const atRiskList = useMemo(
+    () => identifyAtRiskStudents(currentStudentSnapshots, studentMap),
+    [currentStudentSnapshots, studentMap]
+  );
+
+  // Extract all unique reason tags
+  const allReasons = useMemo(
+    () => Array.from(new Set(atRiskList.flatMap((s) => s.reasons))),
+    [atRiskList]
+  );
+
+  const filteredList = useMemo(() => {
+    const query = deferredSearch.toLowerCase().trim();
+    return atRiskList.filter((item) => {
+      const matchesSearch =
+        !query ||
+        item.studentName.toLowerCase().includes(query) ||
+        item.phoneE164.includes(query);
+      const matchesFilter =
+        selectedReasonFilter === 'ALL' || item.reasons.includes(selectedReasonFilter);
+      return matchesSearch && matchesFilter;
+    });
+  }, [atRiskList, deferredSearch, selectedReasonFilter]);
 
   const exportCSV = () => {
     const headers = [

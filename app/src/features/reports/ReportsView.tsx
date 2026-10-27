@@ -6,9 +6,7 @@ import { usePlatformStore } from '@/store/usePlatformStore';
 import { formatStudentName, formatStudentPhone } from '@/core/identity/mask';
 import { computeSnapshotAggregate, computeBatchScorecards, identifyAtRiskStudents } from '@/core/analytics';
 import type { Snapshot, StudentSnapshot, Student, Batch } from '@/types';
-import * as XLSX from 'xlsx';
-import jsPDF from 'jspdf';
-import html2canvas from 'html2canvas';
+// Dynamic imports for xlsx, jsPDF, and html2canvas are used below to keep them out of the critical bundle
 import { FileDown, FileSpreadsheet, CheckCircle2 } from 'lucide-react';
 
 interface ReportsViewProps {
@@ -28,7 +26,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
   previousStudentSnapshots,
   students,
 }) => {
-  const { settings } = usePlatformStore();
+  const settings = usePlatformStore((s) => s.settings);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [isExportingExcel, setIsExportingExcel] = useState(false);
   const [exportSuccessMsg, setExportSuccessMsg] = useState<string | null>(null);
@@ -59,6 +57,11 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     setExportSuccessMsg(null);
 
     try {
+      const [{ default: html2canvas }, { default: jsPDF }] = await Promise.all([
+        import('html2canvas'),
+        import('jspdf'),
+      ]);
+
       const element = reportCardRef.current;
       const canvas = await html2canvas(element, {
         scale: 2,
@@ -98,11 +101,12 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     }
   };
 
-  const handleExportExcel = () => {
+  const handleExportExcel = async () => {
     setIsExportingExcel(true);
     setExportSuccessMsg(null);
 
     try {
+      const XLSX = await import('xlsx');
       const wb = XLSX.utils.book_new();
 
       // 1. Summary Sheet

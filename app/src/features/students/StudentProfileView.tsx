@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useDeferredValue } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { Card } from '@/ui/Card';
 import { Button } from '@/ui/Button';
 import { SegmentBadge } from '@/ui/Badge';
@@ -47,14 +48,21 @@ export const StudentProfileView: React.FC<StudentProfileViewProps> = ({
   sessions,
   attendance,
 }) => {
-  const { selectedStudentId, setSelectedStudentId, settings } = usePlatformStore();
+  const { selectedStudentId, setSelectedStudentId, settings } = usePlatformStore(
+    useShallow((s) => ({
+      selectedStudentId: s.selectedStudentId,
+      setSelectedStudentId: s.setSelectedStudentId,
+      settings: s.settings,
+    }))
+  );
   const [search, setSearch] = useState('');
   const [newNote, setNewNote] = useState('');
   const [newStatus, setNewStatus] = useState<'PENDING' | 'IN_PROGRESS' | 'RESOLVED'>('PENDING');
+  const deferredSearch = useDeferredValue(search);
 
   // If no student is selected, select the first student by default
   const activeStudentId = selectedStudentId || students[0]?.id || '';
-  const student = students.find((s) => s.id === activeStudentId);
+  const student = useMemo(() => students.find((s) => s.id === activeStudentId), [students, activeStudentId]);
 
   // Live query for follow-ups for this student
   const followups =
@@ -67,48 +75,66 @@ export const StudentProfileView: React.FC<StudentProfileViewProps> = ({
     ) || [];
 
   // Sort snapshots chronologically
-  const sortedSnapshots = [...snapshots].sort((a, b) =>
-    a.snapshotDate.localeCompare(b.snapshotDate)
-  );
+  const sortedSnapshots = useMemo(() => {
+    return [...snapshots].sort((a, b) => a.snapshotDate.localeCompare(b.snapshotDate));
+  }, [snapshots]);
 
   // Student history across snapshots
-  const studentHistory = sortedSnapshots
-    .map((snap) => {
-      const snapRecord = allStudentSnapshots.find(
-        (s) => s.snapshotId === snap.id && s.studentId === activeStudentId
-      );
-      if (!snapRecord) return null;
-      return {
-        date: snap.snapshotDate,
-        consumption: snapRecord.metrics.totalConsumptionPct,
-        assignment: snapRecord.metrics.assignmentSubmissionPct,
-        liveAttendance: snapRecord.metrics.liveClassPct,
-        liveOrRec: snapRecord.metrics.liveOrRecordingPct,
-      };
-    })
-    .filter(Boolean);
+  const studentHistory = useMemo(() => {
+    return sortedSnapshots
+      .map((snap) => {
+        const snapRecord = allStudentSnapshots.find(
+          (s) => s.snapshotId === snap.id && s.studentId === activeStudentId
+        );
+        if (!snapRecord) return null;
+        return {
+          date: snap.snapshotDate,
+          consumption: snapRecord.metrics.totalConsumptionPct,
+          assignment: snapRecord.metrics.assignmentSubmissionPct,
+          liveAttendance: snapRecord.metrics.liveClassPct,
+          liveOrRec: snapRecord.metrics.liveOrRecordingPct,
+        };
+      })
+      .filter(Boolean);
+  }, [sortedSnapshots, allStudentSnapshots, activeStudentId]);
 
   // Latest snapshot metrics for this student
   const latestSnapshot = sortedSnapshots[sortedSnapshots.length - 1];
-  const latestMetrics = allStudentSnapshots.find(
-    (s) => s.snapshotId === latestSnapshot?.id && s.studentId === activeStudentId
-  );
+
+  // Pre-index student snapshots for the latest snapshot into a Map for O(1) lookups
+  const latestSnapshotRecordMap = useMemo(() => {
+    const map = new Map<string, StudentSnapshot>();
+    if (!latestSnapshot) return map;
+    for (const rec of allStudentSnapshots) {
+      if (rec.snapshotId === latestSnapshot.id) {
+        map.set(rec.studentId, rec);
+      }
+    }
+    return map;
+  }, [allStudentSnapshots, latestSnapshot]);
+
+  const latestMetrics = latestSnapshotRecordMap.get(activeStudentId);
 
   // Assignments for this student
-  const studentAssignments = assignmentResults.filter(
-    (a) => a.studentId === activeStudentId && a.snapshotId === latestSnapshot?.id
-  );
+  const studentAssignments = useMemo(() => {
+    return assignmentResults.filter(
+      (a) => a.studentId === activeStudentId && a.snapshotId === latestSnapshot?.id
+    );
+  }, [assignmentResults, activeStudentId, latestSnapshot]);
 
   // Weekly consumption
-  const studentWeekly = weeklyConsumption
-    .filter((w) => w.studentId === activeStudentId && w.snapshotId === latestSnapshot?.id)
-    .sort((a, b) => a.weekNo - b.weekNo);
+  const studentWeekly = useMemo(() => {
+    return weeklyConsumption
+      .filter((w) => w.studentId === activeStudentId && w.snapshotId === latestSnapshot?.id)
+      .sort((a, b) => a.weekNo - b.weekNo);
+  }, [weeklyConsumption, activeStudentId, latestSnapshot]);
 
   // Attendance
-  const studentAttendance = attendance.filter(
-    (a) => a.studentId === activeStudentId
-  );
-  const sessionMap = new Map(sessions.map((s) => [s.id, s]));
+  const studentAttendance = useMemo(() => {
+    return attendance.filter((a) => a.studentId === activeStudentId);
+  }, [attendance, activeStudentId]);
+
+  const sessionMap = useMemo(() => new Map(sessions.map((s) => [s.id, s])), [sessions]);
 
   const handleAddFollowup = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -127,13 +153,16 @@ export const StudentProfileView: React.FC<StudentProfileViewProps> = ({
     setNewNote('');
   };
 
-  const filteredStudentList = students.filter(
-    (s) =>
-      !search ||
-      s.name.toLowerCase().includes(search.toLowerCase()) ||
-      s.phoneE164.includes(search) ||
-      s.externalStudentId.includes(search)
-  );
+  const filteredStudentList = useMemo(() => {
+    const query = deferredSearch.toLowerCase().trim();
+    if (!query) return students;
+    return students.filter(
+      (s) =>
+        s.name.toLowerCase().includes(query) ||
+        s.phoneE164.includes(query) ||
+        s.externalStudentId.includes(query)
+    );
+  }, [students, deferredSearch]);
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
@@ -153,9 +182,7 @@ export const StudentProfileView: React.FC<StudentProfileViewProps> = ({
 
           <div className="max-h-[600px] overflow-y-auto divide-y divide-slate-100">
             {filteredStudentList.map((s) => {
-              const snapRecord = allStudentSnapshots.find(
-                (rec) => rec.snapshotId === latestSnapshot?.id && rec.studentId === s.id
-              );
+              const snapRecord = latestSnapshotRecordMap.get(s.id);
               const isSelected = s.id === activeStudentId;
 
               return (
