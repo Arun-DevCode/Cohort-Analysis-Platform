@@ -25,9 +25,13 @@ import { apiClient } from '@/core/api/client';
 export const UploadModal: React.FC = () => {
   const {
     isUploadModalOpen,
+    isUploadBatchLocked,
     setUploadModalOpen,
+    selectedBatchId,
     setSelectedBatchId,
     setSelectedSnapshotId,
+    setComparePreselected,
+    setActiveTab,
     backendConnected,
     settings,
   } = usePlatformStore();
@@ -48,25 +52,40 @@ export const UploadModal: React.FC = () => {
   const [existingFound, setExistingFound] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [compatibilityError, setCompatibilityError] = useState<{
+    shortReason: string;
+    details: string[];
+  } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Initialize or reset defaults when modal opens
   useEffect(() => {
-    if (isUploadModalOpen && !batchId) {
-      if (batches.length > 0) {
-        const first = batches[0];
-        setBatchId(first.id);
-        setBatchName(first.name);
-        setBatchCode(first.externalBatchId || '');
-      } else {
-        const newId = `batch_${Date.now()}`;
-        setBatchId(newId);
-        setBatchName('');
-        setBatchCode('');
+    if (isUploadModalOpen) {
+      if (isUploadBatchLocked && selectedBatchId) {
+        const locked = batches.find((b) => b.id === selectedBatchId);
+        if (locked) {
+          setBatchId(locked.id);
+          setBatchName(locked.name);
+          setBatchCode(locked.externalBatchId || '');
+          return;
+        }
+      }
+      if (!batchId) {
+        if (batches.length > 0) {
+          const first = batches[0];
+          setBatchId(first.id);
+          setBatchName(first.name);
+          setBatchCode(first.externalBatchId || '');
+        } else {
+          const newId = `batch_${Date.now()}`;
+          setBatchId(newId);
+          setBatchName('');
+          setBatchCode('');
+        }
       }
     }
-  }, [isUploadModalOpen, batches, batchId]);
+  }, [isUploadModalOpen, batches, batchId, isUploadBatchLocked, selectedBatchId]);
 
   const resetState = () => {
     setFile(null);
@@ -79,6 +98,7 @@ export const UploadModal: React.FC = () => {
     setExistingFound(false);
     setIsSaving(false);
     setErrorMsg(null);
+    setCompatibilityError(null);
   };
 
   const handleClose = () => {
@@ -190,10 +210,90 @@ export const UploadModal: React.FC = () => {
       // Check if duplicate report exists for this batch on detected date
       const existing = await checkExistingSnapshot(targetBatchId, activeDate);
       setExistingFound(!!existing);
+
+      // Run pre-save compatibility check if batch already has reports
+      await checkCompatibilityWithExistingBatch(targetBatchId, result, activeDate);
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'Failed to parse workbook');
     } finally {
       setIsParsing(false);
+    }
+  };
+
+  const checkCompatibilityWithExistingBatch = async (
+    targetId: string,
+    result: ParseResult,
+    _activeDate: string
+  ): Promise<boolean> => {
+    try {
+      const existingSnaps = await db.snapshots.where('batchId').equals(targetId).toArray();
+      if (existingSnaps.length === 0) {
+        setCompatibilityError(null);
+        return true;
+      }
+
+      const sorted = [...existingSnaps].sort((a, b) => b.snapshotDate.localeCompare(a.snapshotDate));
+      const latest = sorted[0];
+
+      // 1. Learners check
+      const latestSs = await db.studentSnapshots.where('snapshotId').equals(latest.id).toArray();
+      const existingStudents = await db.students.bulkGet(latestSs.map((s) => s.studentId));
+
+      const existingLearnerKeys = new Set(
+        existingStudents.filter(Boolean).map((s) => (s!.externalStudentId || s!.phoneE164 || s!.name).toLowerCase().trim())
+      );
+      const uploadedLearnerKeys = new Set(
+        result.students.map((s) => (s.externalStudentId || s.phoneE164 || s.name).toLowerCase().trim())
+      );
+
+      const onlyInExisting = Array.from(existingLearnerKeys).filter((k) => !uploadedLearnerKeys.has(k));
+      const onlyInUploaded = Array.from(uploadedLearnerKeys).filter((k) => !existingLearnerKeys.has(k));
+
+      if (onlyInExisting.length > 0 || onlyInUploaded.length > 0) {
+        setCompatibilityError({
+          shortReason: `Learners do not match: ${onlyInExisting.length} only in existing report, ${onlyInUploaded.length} only in uploaded report.`,
+          details: [
+            ...onlyInExisting.map((k) => `Only in existing report: ${k}`),
+            ...onlyInUploaded.map((k) => `Only in uploaded report: ${k}`),
+          ],
+        });
+        return false;
+      }
+
+      // 2. Curriculum check: Every assignment and session in existing must exist in uploaded
+      const existingAssigns = await db.assignmentResults.where('snapshotId').equals(latest.id).toArray();
+      const existingAssignNames = new Set(existingAssigns.map((a) => a.assignmentName.toLowerCase().trim()));
+      const uploadedAssignNames = new Set(result.assignmentResults.map((a) => a.assignmentName.toLowerCase().trim()));
+      const missingAssignments = Array.from(existingAssignNames).filter((a) => !uploadedAssignNames.has(a));
+
+      const existingSessions = await db.sessions.where('snapshotId').equals(latest.id).toArray();
+      const existingSessionTitles = new Set(
+        existingSessions.map((s) => s.title.replace(/[-_/\s]*\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}\s*$/i, '').toLowerCase().trim())
+      );
+      const uploadedSessionTitles = new Set(
+        result.sessions.map((s) => s.title.replace(/[-_/\s]*\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}\s*$/i, '').toLowerCase().trim())
+      );
+      const missingSessions = Array.from(existingSessionTitles).filter((s) => !uploadedSessionTitles.has(s));
+
+      if (missingAssignments.length > 0 || missingSessions.length > 0) {
+        const parts: string[] = [];
+        if (missingAssignments.length > 0) parts.push(`${missingAssignments.length} assignment(s)`);
+        if (missingSessions.length > 0) parts.push(`${missingSessions.length} session(s)`);
+        setCompatibilityError({
+          shortReason: `Course structure differs: ${parts.join(', ')} from the existing report are missing in this report.`,
+          details: [
+            ...missingAssignments.map((a) => `Missing assignment: ${a}`),
+            ...missingSessions.map((s) => `Missing session: ${s}`),
+          ],
+        });
+        return false;
+      }
+
+      setCompatibilityError(null);
+      return true;
+    } catch {
+      setCompatibilityError(null);
+      return true;
     }
   };
 
@@ -202,6 +302,9 @@ export const UploadModal: React.FC = () => {
     if (batchId) {
       const existing = await checkExistingSnapshot(batchId, date);
       setExistingFound(!!existing);
+      if (parseResult) {
+        await checkCompatibilityWithExistingBatch(batchId, parseResult, date);
+      }
     }
   };
 
@@ -212,6 +315,7 @@ export const UploadModal: React.FC = () => {
       setBatchName('');
       setBatchCode('');
       setExistingFound(false);
+      setCompatibilityError(null);
     } else {
       setBatchId(selectedId);
       const b = batches.find((item) => item.id === selectedId);
@@ -221,11 +325,15 @@ export const UploadModal: React.FC = () => {
       }
       const existing = await checkExistingSnapshot(selectedId, snapshotDate);
       setExistingFound(!!existing);
+      if (parseResult) {
+        await checkCompatibilityWithExistingBatch(selectedId, parseResult, snapshotDate);
+      }
     }
   };
 
   const handleConfirmSave = async () => {
     if (!parseResult || !batchId || !batchName.trim() || !snapshotDate) return;
+    if (compatibilityError) return;
 
     if (existingFound && !isOverwriting) {
       setErrorMsg(`A report for batch '${batchName}' on ${snapshotDate} already exists. Enable overwrite to replace.`);
@@ -274,6 +382,18 @@ export const UploadModal: React.FC = () => {
           );
         } catch (syncErr) {
           console.warn('Backend server sync note:', syncErr);
+        }
+      }
+
+      // Check if batch now has multiple snapshots to preselect in Compare tab
+      const existingBatchSnaps = await db.snapshots.where('batchId').equals(batchId).toArray();
+      if (existingBatchSnaps.length >= 2) {
+        const sorted = [...existingBatchSnaps].sort((a, b) => a.snapshotDate.localeCompare(b.snapshotDate));
+        const older = sorted[0];
+        const newer = sorted[sorted.length - 1];
+        setComparePreselected({ leftId: older.id, rightId: newer.id });
+        if (isUploadBatchLocked) {
+          setActiveTab('compare');
         }
       }
 
@@ -502,6 +622,49 @@ export const UploadModal: React.FC = () => {
                 </div>
               )}
 
+              {/* Compatibility Check Alert */}
+              {compatibilityError && (
+                <div className="p-3 bg-destructive/10 text-destructive rounded-[12px] border border-destructive/25 text-xs space-y-2">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-destructive" />
+                    <div className="space-y-1">
+                      <p className="font-semibold text-xs text-destructive">Incompatible with Existing Batch</p>
+                      <p className="text-[11px] leading-relaxed text-destructive/90">{compatibilityError.shortReason}</p>
+                      {compatibilityError.details.length > 0 && (
+                        <ul className="list-disc list-inside mt-1 text-[10px] space-y-0.5 text-destructive/80 max-h-24 overflow-y-auto font-mono">
+                          {compatibilityError.details.slice(0, 6).map((d, i) => (
+                            <li key={i}>{d}</li>
+                          ))}
+                          {compatibilityError.details.length > 6 && (
+                            <li>...and {compatibilityError.details.length - 6} more</li>
+                          )}
+                        </ul>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 pt-1 border-t border-destructive/20">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleBatchSelect('NEW')}
+                      className="text-[11px] h-7 px-2.5 bg-background text-foreground hover:bg-muted"
+                    >
+                      Create a new batch instead
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={handleClose}
+                      className="text-[11px] h-7 px-2.5 text-muted-foreground hover:text-foreground"
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
+
               {/* Overwrite Confirmation */}
               {existingFound && (
                 <div className="p-2.5 bg-destructive/10 text-destructive rounded-[10px] border border-destructive/20 text-xs space-y-1.5">
@@ -550,6 +713,7 @@ export const UploadModal: React.FC = () => {
                 !batchCode.trim() ||
                 !snapshotDate ||
                 (existingFound && !isOverwriting) ||
+                !!compatibilityError ||
                 isSaving
               }
               onClick={handleConfirmSave}

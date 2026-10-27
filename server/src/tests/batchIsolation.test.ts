@@ -526,59 +526,56 @@ describe('Step 3: Batch Isolation & Single Batch Invariant Tests', () => {
     expect(afsd.status).toBe(201);
     const afsdId = afsd.body.snapshot.snapshotId;
 
-    // A. Cross-batch comparison (DA vs AFSD) MUST return 422
+    // A. Cross-batch comparison (DA vs AFSD) MUST return 404 (snapshot from another batch)
     const crossRes1 = await request(app)
       .get(`/api/v1/batches/${daBatchId}/compare?snapshots=${da1Id},${afsdId}`)
       .set('Authorization', `Bearer ${adminToken}`);
-    expect(crossRes1.status).toBe(422);
-    expect(crossRes1.body.message).toBe('Only reports of the same course with different dates can be compared');
+    expect(crossRes1.status).toBe(404);
+    expect(crossRes1.body.message).toMatch(/not found/i);
 
-    // B. Same snapshot or date twice MUST return 422
+    // B. Same snapshot or date twice MUST return 422 NOT_COMPARABLE
     const sameRes = await request(app)
       .get(`/api/v1/batches/${daBatchId}/compare?snapshots=${da1Id},${da1Id}`)
       .set('Authorization', `Bearer ${adminToken}`);
     expect(sameRes.status).toBe(422);
-    expect(sameRes.body.message).toBe('Only reports of the same course with different dates can be compared');
+    expect(sameRes.body.code).toBe('NOT_COMPARABLE');
+    expect(sameRes.body.shortReason).toBe('Both reports have the same date. Choose reports with different dates.');
+    expect(sameRes.body.message).toMatch(/Compare correct document/i);
 
-    // C. Fewer than 2 snapshots MUST return 422
+    // C. Fewer than 2 snapshots MUST return 422 NOT_COMPARABLE
     const singleRes = await request(app)
       .get(`/api/v1/batches/${daBatchId}/compare?snapshots=${da1Id}`)
       .set('Authorization', `Bearer ${adminToken}`);
     expect(singleRes.status).toBe(422);
-    expect(singleRes.body.message).toBe('Only reports of the same course with different dates can be compared');
+    expect(singleRes.body.code).toBe('NOT_COMPARABLE');
 
-    // D. Valid 2-date comparison within DA (Date 1 vs Date 2) MUST succeed
-    const valid2Res = await request(app)
+    // D. Incompatible learners (Date 1 with 20 students vs Date 2 with 18 students) MUST return 422 NOT_COMPARABLE
+    const mismatchRes = await request(app)
       .get(`/api/v1/batches/${daBatchId}/compare?snapshots=${da1Id},${da2Id}`)
       .set('Authorization', `Bearer ${adminToken}`);
-    expect(valid2Res.status).toBe(200);
-    expect(valid2Res.body.fromSnapshotDate).toBe('2026-10-20');
-    expect(valid2Res.body.toSnapshotDate).toBe('2026-10-25');
-    expect(valid2Res.body.metrics).toBeDefined();
-    expect(valid2Res.body.metrics.assignment).toHaveProperty('deltaPts');
-    expect(valid2Res.body.metrics.assignment).toHaveProperty('arrow');
-    expect(valid2Res.body.metrics.content).toHaveProperty('deltaPts');
-    expect(valid2Res.body.metrics.content).toHaveProperty('arrow');
-    expect(valid2Res.body.metrics.attendance).toHaveProperty('deltaPts');
-    expect(valid2Res.body.metrics.attendance).toHaveProperty('arrow');
-    // Students appearing in only one report are identified
-    expect(valid2Res.body.onlyInFirst.length).toBeGreaterThanOrEqual(1);
-    // Assignment items diffed
-    expect(valid2Res.body.assignmentComparison).toBeDefined();
-    expect(Array.isArray(valid2Res.body.assignmentComparison)).toBe(true);
-    // Sessions diffed
-    expect(valid2Res.body.sessionComparison).toBeDefined();
-    expect(Array.isArray(valid2Res.body.sessionComparison)).toBe(true);
+    expect(mismatchRes.status).toBe(422);
+    expect(mismatchRes.body.code).toBe('NOT_COMPARABLE');
+    expect(mismatchRes.body.shortReason).toMatch(/Learners do not match/i);
+    expect(mismatchRes.body.checks).toBeDefined();
 
-    // E. 3-date comparison returns trendSeries
-    const valid3Res = await request(app)
-      .get(`/api/v1/batches/${daBatchId}/compare?snapshots=${da1Id},${da2Id},${da3Id}`)
+    // E. Compatible reports (Date 1 vs Date 3: same 20 students, different dates) MUST succeed (200)
+    const validRes = await request(app)
+      .get(`/api/v1/batches/${daBatchId}/compare?snapshots=${da1Id},${da3Id}`)
       .set('Authorization', `Bearer ${adminToken}`);
-    expect(valid3Res.status).toBe(200);
-    expect(valid3Res.body.trendSeries).toBeDefined();
-    expect(valid3Res.body.trendSeries).toHaveLength(3);
-    expect(valid3Res.body.trendSeries[0].snapshotDate).toBe('2026-10-20');
-    expect(valid3Res.body.trendSeries[1].snapshotDate).toBe('2026-10-25');
-    expect(valid3Res.body.trendSeries[2].snapshotDate).toBe('2026-10-27');
+    expect(validRes.status).toBe(200);
+    expect(validRes.body.fromSnapshotDate).toBe('2026-10-20');
+    expect(validRes.body.toSnapshotDate).toBe('2026-10-27');
+    expect(validRes.body.metrics).toBeDefined();
+    expect(validRes.body.metrics.assignment).toHaveProperty('deltaPts');
+    expect(validRes.body.metrics.assignment).toHaveProperty('arrow');
+    expect(validRes.body.metrics.content).toHaveProperty('deltaPts');
+    expect(validRes.body.metrics.attendance).toHaveProperty('deltaPts');
+    expect(validRes.body.learnerComparisons).toBeDefined();
+    expect(validRes.body.learnerComparisons).toHaveLength(20);
+    expect(validRes.body.segmentMatrix).toBeDefined();
+    expect(validRes.body.atRiskMovement).toBeDefined();
+    expect(validRes.body.insights).toBeDefined();
+    expect(validRes.body.insights.positives).toBeDefined();
+    expect(validRes.body.insights.concerns).toBeDefined();
   });
 });

@@ -21,6 +21,8 @@ interface PlatformState {
   activeTab: ActiveTab;
   settings: AppSettings;
   isUploadModalOpen: boolean;
+  isUploadBatchLocked: boolean;
+  comparePreselected: { leftId: string; rightId: string } | null;
   selectedStudentId: string | null;
 
   // Backend Connection State
@@ -32,7 +34,8 @@ interface PlatformState {
   setSelectedBatchId: (batchId: string | null) => void;
   setSelectedSnapshotId: (snapshotId: string | null) => void;
   setActiveTab: (tab: ActiveTab) => void;
-  setUploadModalOpen: (open: boolean) => void;
+  setUploadModalOpen: (open: boolean, lockBatch?: boolean) => void;
+  setComparePreselected: (selection: { leftId: string; rightId: string } | null) => void;
   setLoginModalOpen: (open: boolean) => void;
   setSelectedStudentId: (studentId: string | null) => void;
   loadSettings: () => Promise<void>;
@@ -83,6 +86,8 @@ export const usePlatformStore = create<PlatformState>((set, get) => ({
   activeTab: 'overview',
   settings: DEFAULT_SETTINGS,
   isUploadModalOpen: false,
+  isUploadBatchLocked: false,
+  comparePreselected: null,
   selectedStudentId: null,
 
   backendConnected: false,
@@ -106,7 +111,9 @@ export const usePlatformStore = create<PlatformState>((set, get) => ({
       return { selectedSnapshotId: snapshotId };
     }),
   setActiveTab: (tab) => set({ activeTab: tab }),
-  setUploadModalOpen: (open) => set({ isUploadModalOpen: open }),
+  setUploadModalOpen: (open, lockBatch = false) =>
+    set({ isUploadModalOpen: open, isUploadBatchLocked: lockBatch }),
+  setComparePreselected: (selection) => set({ comparePreselected: selection }),
   setLoginModalOpen: (open) => set({ isLoginModalOpen: open }),
   setSelectedStudentId: (studentId) => set({ selectedStudentId: studentId }),
 

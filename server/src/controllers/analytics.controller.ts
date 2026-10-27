@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { AnalyticsService } from '../services/analytics/analytics.service.js';
 import { exportAtRiskToCsv } from '../services/analytics/atRisk.js';
+import { compareStrictSnapshots } from '../services/analytics/strictCompare.js';
 
 export class AnalyticsController {
   static async getOverview(req: Request, res: Response, next: NextFunction): Promise<void> {
@@ -33,25 +34,52 @@ export class AnalyticsController {
         snapshotIds = [String(req.query.from).trim(), String(req.query.to).trim()];
       }
 
-      if (snapshotIds.length < 2) {
+      if (snapshotIds.length !== 2) {
         res.status(422).json({
-          code: 'UNPROCESSABLE_ENTITY',
-          message: 'Only reports of the same course with different dates can be compared',
+          code: 'NOT_COMPARABLE',
+          message:
+            'Compare correct document: Exactly two reports from the same course must be selected.',
+          shortReason: 'Exactly two reports from the same course must be selected.',
+          checks: [
+            {
+              name: 'different_dates',
+              passed: false,
+              detail: 'Exactly two reports from the same course must be selected.',
+            },
+          ],
         });
         return;
       }
 
       const tolerance = req.query.tolerance ? Number(req.query.tolerance) : 2;
-      const comparison = await AnalyticsService.compareMultiSnapshots(
-        batchId,
-        snapshotIds,
-        tolerance
-      );
+      const sameItems = req.query.sameItems === 'true';
+
+      const comparison = await compareStrictSnapshots(batchId, snapshotIds[0], snapshotIds[1], {
+        tolerance,
+        sameItems,
+      });
+
+      if (!comparison.isComparable) {
+        res.status(422).json({
+          code: 'NOT_COMPARABLE',
+          message: `Compare correct document: ${comparison.shortReason}`,
+          shortReason: comparison.shortReason,
+          checks: comparison.checks,
+        });
+        return;
+      }
+
+      const same = comparison.learnerComparisons?.filter((l) => l.status === 'Same') || [];
+      const improved = comparison.learnerComparisons?.filter((l) => l.status === 'Improved') || [];
+      const declined = comparison.learnerComparisons?.filter((l) => l.status === 'Declined') || [];
 
       res.status(200).json({
-        batchId,
-        snapshotIds,
         ...comparison,
+        comparisons: comparison.learnerComparisons,
+        same,
+        improved,
+        declined,
+        matrix: comparison.segmentMatrix?.matrix,
       });
     } catch (err) {
       next(err);

@@ -136,13 +136,18 @@ class ApiClient {
     }
 
     if (!res.ok) {
-      let errData: { message?: string } | undefined;
+      let errData: { message?: string; code?: string; shortReason?: string; checks?: any[] } | undefined;
       try {
-        errData = (await res.json()) as { message?: string };
+        errData = (await res.json()) as { message?: string; code?: string; shortReason?: string; checks?: any[] };
       } catch {
         errData = { message: res.statusText };
       }
-      throw new Error(errData?.message || `Request failed with status ${res.status}`);
+      const error: any = new Error(errData?.message || `Request failed with status ${res.status}`);
+      error.status = res.status;
+      error.code = errData?.code;
+      error.shortReason = errData?.shortReason;
+      error.checks = errData?.checks;
+      throw error;
     }
 
     return res.json() as Promise<T>;
@@ -279,8 +284,17 @@ class ApiClient {
     return this.request<Record<string, unknown>>(`/batches/${batchId}/at-risk${query}`);
   }
 
-  async compareSnapshots(batchId: string, fromId: string, toId: string): Promise<Record<string, unknown>> {
-    return this.request<Record<string, unknown>>(`/batches/${batchId}/compare?from=${encodeURIComponent(fromId)}&to=${encodeURIComponent(toId)}`);
+  async compareSnapshots(
+    batchId: string,
+    idA: string,
+    idB: string,
+    options?: { sameItems?: boolean; tolerance?: number }
+  ): Promise<any> {
+    const params = new URLSearchParams();
+    params.set('snapshots', `${idA},${idB}`);
+    if (options?.sameItems) params.set('sameItems', 'true');
+    if (options?.tolerance !== undefined) params.set('tolerance', String(options.tolerance));
+    return this.request<any>(`/batches/${batchId}/compare?${params.toString()}`);
   }
 
   async getStudentProfile(studentId: string, batchId?: string): Promise<Record<string, unknown>> {
