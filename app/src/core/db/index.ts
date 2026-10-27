@@ -69,3 +69,22 @@ export async function saveSettings(settings: Partial<AppSettings>): Promise<AppS
   await db.settings.put({ key: 'app_settings', value: updated });
   return updated;
 }
+
+export async function clearAllLocalData(): Promise<void> {
+  try {
+    await Promise.all([
+      db.batches.clear(),
+      db.students.clear(),
+      db.snapshots.clear(),
+      db.studentSnapshots.clear(),
+      db.assignmentResults.clear(),
+      db.weeklyConsumption.clear(),
+      db.sessions.clear(),
+      db.attendance.clear(),
+      db.followups.clear(),
+    ]);
+  } catch (err) {
+    console.error('Failed to clear local DB cache:', err);
+  }
+}
+

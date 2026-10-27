@@ -32,13 +32,22 @@ export const users = pgTable('users', {
 });
 
 // 2. Batches
-export const batches = pgTable('batches', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  name: varchar('name', { length: 255 }).notNull(),
-  externalBatchId: varchar('external_batch_id', { length: 100 }).notNull().unique(),
-  startDate: date('start_date'),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-});
+export const batches = pgTable(
+  'batches',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    name: varchar('name', { length: 255 }).notNull(),
+    externalBatchId: varchar('external_batch_id', { length: 100 }).notNull().unique(),
+    startDate: date('start_date'),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index('batches_created_by_idx').on(t.createdBy),
+  ]
+);
 
 // 3. Batch Trainers
 export const batchTrainers = pgTable(
@@ -55,13 +64,23 @@ export const batchTrainers = pgTable(
 );
 
 // 4. Students
-export const students = pgTable('students', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  externalStudentId: varchar('external_student_id', { length: 100 }).notNull().unique(),
-  name: varchar('name', { length: 255 }).notNull(),
-  phoneE164: varchar('phone_e164', { length: 50 }).notNull(),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-});
+export const students = pgTable(
+  'students',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    externalStudentId: varchar('external_student_id', { length: 100 }).notNull(),
+    name: varchar('name', { length: 255 }).notNull(),
+    phoneE164: varchar('phone_e164', { length: 50 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex('students_created_by_external_id_unique').on(t.createdBy, t.externalStudentId),
+    index('students_created_by_idx').on(t.createdBy),
+  ]
+);
 
 // 5. Batch Students
 export const batchStudents = pgTable(
@@ -78,19 +97,25 @@ export const batchStudents = pgTable(
 );
 
 // 6. Uploads
-export const uploads = pgTable('uploads', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  batchId: uuid('batch_id')
-    .notNull()
-    .references(() => batches.id, { onDelete: 'cascade' }),
-  uploadedBy: uuid('uploaded_by')
-    .notNull()
-    .references(() => users.id),
-  fileHash: varchar('file_hash', { length: 64 }).notNull(),
-  status: uploadStatusEnum('status').default('processing').notNull(),
-  errorReport: jsonb('error_report'),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-});
+export const uploads = pgTable(
+  'uploads',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    batchId: uuid('batch_id')
+      .notNull()
+      .references(() => batches.id, { onDelete: 'cascade' }),
+    uploadedBy: uuid('uploaded_by')
+      .notNull()
+      .references(() => users.id),
+    fileHash: varchar('file_hash', { length: 64 }).notNull(),
+    status: uploadStatusEnum('status').default('processing').notNull(),
+    errorReport: jsonb('error_report'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index('uploads_batch_id_idx').on(t.batchId),
+  ]
+);
 
 // 7. Snapshots
 export const snapshots = pgTable(
@@ -106,6 +131,7 @@ export const snapshots = pgTable(
   },
   (t) => [
     uniqueIndex('snapshots_batch_date_unique').on(t.batchId, t.snapshotDate),
+    index('snapshots_batch_id_idx').on(t.batchId),
   ]
 );
 
@@ -237,13 +263,19 @@ export const auditLogs = pgTable('audit_logs', {
 
 // Relations
 export const usersRelations = relations(users, ({ many }) => ({
+  createdBatches: many(batches),
   batchTrainers: many(batchTrainers),
   uploads: many(uploads),
   followups: many(followups),
   auditLogs: many(auditLogs),
+  students: many(students),
 }));
 
-export const batchesRelations = relations(batches, ({ many }) => ({
+export const batchesRelations = relations(batches, ({ one, many }) => ({
+  creator: one(users, {
+    fields: [batches.createdBy],
+    references: [users.id],
+  }),
   trainers: many(batchTrainers),
   students: many(batchStudents),
   snapshots: many(snapshots),
@@ -272,7 +304,11 @@ export const batchStudentsRelations = relations(batchStudents, ({ one }) => ({
   }),
 }));
 
-export const studentsRelations = relations(students, ({ many }) => ({
+export const studentsRelations = relations(students, ({ one, many }) => ({
+  creator: one(users, {
+    fields: [students.createdBy],
+    references: [users.id],
+  }),
   batchStudents: many(batchStudents),
   studentSnapshots: many(studentSnapshots),
   assignmentResults: many(assignmentResults),

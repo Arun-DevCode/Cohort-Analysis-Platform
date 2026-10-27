@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { AppSettings } from '@/types';
-import { DEFAULT_SETTINGS, getSettings, saveSettings } from '@/core/db';
+import { DEFAULT_SETTINGS, getSettings, saveSettings, clearAllLocalData } from '@/core/db';
 import { apiClient, BackendUser } from '@/core/api/client';
 
 export type ActiveTab =
@@ -113,8 +113,15 @@ export const usePlatformStore = create<PlatformState>((set, get) => ({
 
   loginToBackend: async (email: string, pass: string) => {
     try {
+      await clearAllLocalData();
       const res = await apiClient.login(email, pass);
-      set({ backendUser: res.user, backendConnected: true });
+      set({
+        backendUser: res.user,
+        backendConnected: true,
+        selectedBatchId: null,
+        selectedSnapshotId: null,
+        selectedStudentId: null,
+      });
       return { success: true };
     } catch (err: unknown) {
       return {
@@ -126,8 +133,15 @@ export const usePlatformStore = create<PlatformState>((set, get) => ({
 
   registerToBackend: async (name: string, email: string, pass: string, role = 'trainer') => {
     try {
+      await clearAllLocalData();
       const res = await apiClient.register(name, email, pass, role);
-      set({ backendUser: res.user, backendConnected: true });
+      set({
+        backendUser: res.user,
+        backendConnected: true,
+        selectedBatchId: null,
+        selectedSnapshotId: null,
+        selectedStudentId: null,
+      });
       return { success: true };
     } catch (err: unknown) {
       return {
@@ -139,6 +153,12 @@ export const usePlatformStore = create<PlatformState>((set, get) => ({
 
   logoutFromBackend: async () => {
     await apiClient.logout();
-    set({ backendUser: null });
+    await clearAllLocalData();
+    set({
+      backendUser: null,
+      selectedBatchId: null,
+      selectedSnapshotId: null,
+      selectedStudentId: null,
+    });
   },
 }));

@@ -5,7 +5,12 @@ import { parseWorkbook } from './workbookParser';
 
 describe('workbookParser & Golden File Test', () => {
   it('parses the sample LMS Excel fixture and matches all golden reference metrics', async () => {
-    const fixturePath = path.resolve(process.cwd(), 'Cumulative_Report_Batch_15748.xlsx');
+    const candidatePaths = [
+      path.resolve(process.cwd(), 'Cumulative_Report_Batch_15748.xlsx'),
+      path.resolve(process.cwd(), '../Cumulative_Report_Batch_15748.xlsx'),
+      path.resolve(process.cwd(), '../server/tests/fixtures/Cumulative_Report_Batch_15748.xlsx'),
+    ];
+    const fixturePath = candidatePaths.find((p) => fs.existsSync(p)) || candidatePaths[0];
     const fileBuffer = fs.readFileSync(fixturePath);
     const arrayBuffer = fileBuffer.buffer.slice(
       fileBuffer.byteOffset,

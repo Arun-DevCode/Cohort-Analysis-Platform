@@ -38,10 +38,13 @@ apiRouter.use('/followups', followupRouter);
 apiRouter.use('/settings', settingsRouter);
 apiRouter.use('/audit-logs', auditRouter);
 
+import { requireBatchAccess } from '../middleware/requireBatchAccess.js';
+
 // Uploads status endpoint
 apiRouter.get(
   '/uploads/:id',
   authenticate,
   authorize(['admin', 'manager', 'trainer']),
+  requireBatchAccess('upload'),
   UploadController.getUploadStatus
 );

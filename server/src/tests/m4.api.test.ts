@@ -59,7 +59,7 @@ describe('Milestone 4: Student Profile, Follow-ups, Exports, Audit Log, Threshol
     // Batch
     const [b] = await db
       .insert(batches)
-      .values({ name: 'Batch 15748 M4', externalBatchId: 'BATCH-15748-M4' })
+      .values({ name: 'Batch 15748 M4', externalBatchId: 'BATCH-15748-M4', createdBy: admin.id })
       .returning();
     batchId = b.id;
 
@@ -106,12 +106,13 @@ describe('Milestone 4: Student Profile, Follow-ups, Exports, Audit Log, Threshol
       expect(res.body.student.id).toBe(testStudentId);
     });
 
-    it('Unassigned trainer is forbidden from viewing student profile (403)', async () => {
+    it('Unassigned trainer is forbidden from viewing student profile (404)', async () => {
       const res = await request(app)
         .get(`/api/v1/students/${testStudentId}`)
         .set('Authorization', `Bearer ${unassignedTrainerToken}`);
 
-      expect(res.status).toBe(403);
+      expect(res.status).toBe(404);
+      expect(res.body.code).toBe('NOT_FOUND');
     });
   });
 
@@ -161,13 +162,14 @@ describe('Milestone 4: Student Profile, Follow-ups, Exports, Audit Log, Threshol
       expect(res.body.note).toBe('Assignment received and graded.');
     });
 
-    it('Unassigned trainer cannot update another trainer follow-up note (403)', async () => {
+    it('Unassigned trainer cannot update another trainer follow-up note (404)', async () => {
       const res = await request(app)
         .patch(`/api/v1/followups/${followupId}`)
         .set('Authorization', `Bearer ${unassignedTrainerToken}`)
         .send({ status: 'open' });
 
-      expect(res.status).toBe(403);
+      expect(res.status).toBe(404);
+      expect(res.body.code).toBe('NOT_FOUND');
     });
 
     it('Admin can delete a follow-up note', async () => {

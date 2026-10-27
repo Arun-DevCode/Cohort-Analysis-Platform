@@ -14,7 +14,7 @@ import {
   followups,
   users,
 } from '../db/schema/index.js';
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, or } from 'drizzle-orm';
 import { AppError } from '../middleware/errorHandler.js';
 
 export class StudentService {
@@ -36,7 +36,7 @@ export class StudentService {
     }
 
     // 2. Fetch student's batches
-    const studentBatchRows = await db
+    let studentBatchRows = await db
       .select({
         batchId: batches.id,
         name: batches.name,
@@ -46,30 +46,41 @@ export class StudentService {
       .innerJoin(batches, eq(batchStudents.batchId, batches.id))
       .where(eq(batchStudents.studentId, studentId));
 
-    const batchIds = studentBatchRows.map((b) => b.batchId);
+    const allBatchIds = studentBatchRows.map((b) => b.batchId);
+    if (allBatchIds.length === 0) {
+      throw new AppError('Student not found', 404);
+    }
 
-    // 3. RBAC check for trainer
+    let accessibleBatchIds = allBatchIds;
+
+    // 3. RBAC check for trainer / scoping to accessible batches
     if (user.role === 'trainer') {
-      if (batchIds.length === 0) {
-        throw new AppError('Forbidden: student is not in your assigned batch', 403);
-      }
-
-      const trainerAssignments = await db
-        .select()
-        .from(batchTrainers)
+      const accessibleBatches = await db
+        .select({ id: batches.id })
+        .from(batches)
+        .leftJoin(batchTrainers, eq(batches.id, batchTrainers.batchId))
         .where(
           and(
-            eq(batchTrainers.userId, user.userId),
-            inArray(batchTrainers.batchId, batchIds)
+            inArray(batches.id, allBatchIds),
+            or(
+              eq(batches.createdBy, user.userId),
+              eq(batchTrainers.userId, user.userId)
+            )
           )
         );
 
-      if (trainerAssignments.length === 0) {
-        throw new AppError('Forbidden: student is not in your assigned batch', 403);
+      accessibleBatchIds = accessibleBatches.map((b) => b.id);
+      if (accessibleBatchIds.length === 0) {
+        throw new AppError('Student not found', 404);
       }
+
+      // Filter student's visible batches to only those this user can access
+      studentBatchRows = studentBatchRows.filter((b) =>
+        accessibleBatchIds.includes(b.batchId)
+      );
     }
 
-    // 4. Fetch longitudinal history across all snapshots
+    // 4. Fetch longitudinal history across accessible snapshots only
     const rawHistoryRows = await db
       .select({
         snapshotId: snapshots.id,
@@ -94,7 +105,12 @@ export class StudentService {
       })
       .from(studentSnapshots)
       .innerJoin(snapshots, eq(studentSnapshots.snapshotId, snapshots.id))
-      .where(eq(studentSnapshots.studentId, studentId))
+      .where(
+        and(
+          eq(studentSnapshots.studentId, studentId),
+          inArray(snapshots.batchId, accessibleBatchIds)
+        )
+      )
       .orderBy(snapshots.snapshotDate);
 
     const historyRows = rawHistoryRows.map((h) => ({
@@ -187,7 +203,17 @@ export class StudentService {
       .from(followups)
       .innerJoin(users, eq(followups.ownerId, users.id))
       .leftJoin(snapshots, eq(followups.snapshotId, snapshots.id))
-      .where(eq(followups.studentId, studentId))
+      .where(
+        user.role === 'admin' || user.role === 'manager'
+          ? eq(followups.studentId, studentId)
+          : and(
+              eq(followups.studentId, studentId),
+              or(
+                inArray(snapshots.batchId, accessibleBatchIds),
+                eq(followups.ownerId, user.userId)
+              )
+            )
+      )
       .orderBy(desc(followups.createdAt));
 
     return {

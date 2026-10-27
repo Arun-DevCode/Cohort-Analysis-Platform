@@ -11,10 +11,8 @@ import { AuditService } from '../services/audit.service.js';
 export class BatchController {
   static async listBatches(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const isTrainer = req.user?.role === 'trainer';
-      const trainerId = isTrainer ? req.user?.userId : undefined;
-
-      const batches = await BatchModel.findAll(trainerId);
+      const userScope = req.user ? { userId: req.user.userId, role: req.user.role } : undefined;
+      const batches = await BatchModel.findAll(userScope);
       res.status(200).json({
         batches: BatchView.renderMany(batches),
       });
@@ -26,11 +24,12 @@ export class BatchController {
   static async getBatch(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { id } = req.params;
-      const batch = await BatchModel.findById(id);
+      const userScope = req.user ? { userId: req.user.userId, role: req.user.role } : undefined;
+      const batch = await BatchModel.findById(id, userScope);
 
       if (!batch) {
         res.status(404).json({
-          code: 'BATCH_NOT_FOUND',
+          code: 'NOT_FOUND',
           message: 'Batch not found',
         });
         return;
@@ -47,8 +46,9 @@ export class BatchController {
   static async createBatch(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const data = req.body as CreateBatchInput;
+      const userScope = req.user ? { userId: req.user.userId, role: req.user.role } : undefined;
 
-      const existing = await BatchModel.findByExternalId(data.externalBatchId);
+      const existing = await BatchModel.findByExternalId(data.externalBatchId, userScope);
       if (existing) {
         res.status(409).json({
           code: 'BATCH_EXISTS',
@@ -57,7 +57,10 @@ export class BatchController {
         return;
       }
 
-      const batch = await BatchModel.create(data);
+      const batch = await BatchModel.create({
+        ...data,
+        createdBy: req.user!.userId,
+      });
 
       await AuditService.log({
         userId: req.user?.userId,
@@ -79,17 +82,18 @@ export class BatchController {
     try {
       const { id } = req.params;
       const data = req.body as UpdateBatchInput;
+      const userScope = req.user ? { userId: req.user.userId, role: req.user.role } : undefined;
 
-      const existing = await BatchModel.findById(id);
+      const existing = await BatchModel.findById(id, userScope);
       if (!existing) {
         res.status(404).json({
-          code: 'BATCH_NOT_FOUND',
+          code: 'NOT_FOUND',
           message: 'Batch not found',
         });
         return;
       }
 
-      const updated = await BatchModel.update(id, data);
+      const updated = await BatchModel.update(id, data, userScope);
 
       await AuditService.log({
         userId: req.user?.userId,
@@ -110,17 +114,18 @@ export class BatchController {
   static async deleteBatch(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { id } = req.params;
+      const userScope = req.user ? { userId: req.user.userId, role: req.user.role } : undefined;
 
-      const existing = await BatchModel.findById(id);
+      const existing = await BatchModel.findById(id, userScope);
       if (!existing) {
         res.status(404).json({
-          code: 'BATCH_NOT_FOUND',
+          code: 'NOT_FOUND',
           message: 'Batch not found',
         });
         return;
       }
 
-      await BatchModel.delete(id);
+      await BatchModel.delete(id, userScope);
 
       await AuditService.log({
         userId: req.user?.userId,
@@ -142,11 +147,12 @@ export class BatchController {
     try {
       const { id } = req.params;
       const { userIds } = req.body as AssignTrainersInput;
+      const userScope = req.user ? { userId: req.user.userId, role: req.user.role } : undefined;
 
-      const existing = await BatchModel.findById(id);
+      const existing = await BatchModel.findById(id, userScope);
       if (!existing) {
         res.status(404).json({
-          code: 'BATCH_NOT_FOUND',
+          code: 'NOT_FOUND',
           message: 'Batch not found',
         });
         return;

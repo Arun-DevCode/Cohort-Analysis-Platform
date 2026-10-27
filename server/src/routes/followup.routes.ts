@@ -29,10 +29,13 @@ followupRouter.post(
   FollowupController.createFollowup
 );
 
+import { requireBatchAccess } from '../middleware/requireBatchAccess.js';
+
 // PATCH /api/v1/followups/:id
 followupRouter.patch(
   '/:id',
   authorize(['admin', 'trainer']),
+  requireBatchAccess('followup'),
   validate({ body: updateFollowupSchema }),
   FollowupController.updateFollowup
 );
@@ -41,5 +44,6 @@ followupRouter.patch(
 followupRouter.delete(
   '/:id',
   authorize(['admin', 'trainer']),
+  requireBatchAccess('followup'),
   FollowupController.deleteFollowup
 );

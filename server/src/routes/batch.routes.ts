@@ -21,10 +21,10 @@ batchRouter.use(authenticate);
 // List batches (all authenticated roles, trainers filtered to assigned)
 batchRouter.get('/', authorize(['admin', 'manager', 'trainer']), BatchController.listBatches);
 
-// Create batch (admin only)
+// Create batch (admin and trainer)
 batchRouter.post(
   '/',
-  authorize(['admin']),
+  authorize(['admin', 'trainer']),
   validate({ body: createBatchSchema }),
   BatchController.createBatch
 );
@@ -33,31 +33,34 @@ batchRouter.post(
 batchRouter.get(
   '/:id',
   authorize(['admin', 'manager', 'trainer']),
-  requireBatchAccess(),
+  requireBatchAccess('batch'),
   validate({ params: batchIdParamSchema }),
   BatchController.getBatch
 );
 
-// Update batch (admin only)
+// Update batch (admin only, verified batch access)
 batchRouter.patch(
   '/:id',
   authorize(['admin']),
+  requireBatchAccess('batch'),
   validate({ params: batchIdParamSchema, body: updateBatchSchema }),
   BatchController.updateBatch
 );
 
-// Delete batch (admin only)
+// Delete batch (admin only, verified batch access)
 batchRouter.delete(
   '/:id',
   authorize(['admin']),
+  requireBatchAccess('batch'),
   validate({ params: batchIdParamSchema }),
   BatchController.deleteBatch
 );
 
-// Assign trainers (admin only)
+// Assign trainers (admin only, verified batch access)
 batchRouter.post(
   '/:id/trainers',
   authorize(['admin']),
+  requireBatchAccess('batch'),
   validate({ params: batchIdParamSchema, body: assignTrainersSchema }),
   BatchController.assignTrainers
 );

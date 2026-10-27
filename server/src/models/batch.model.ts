@@ -1,11 +1,12 @@
 import { getDb } from '../db/client.js';
 import { batches, batchTrainers, users } from '../db/schema/index.js';
-import { eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, or } from 'drizzle-orm';
 
 export interface CreateBatchData {
   name: string;
   externalBatchId: string;
   startDate?: string;
+  createdBy: string;
 }
 
 export interface UpdateBatchData {
@@ -13,26 +14,40 @@ export interface UpdateBatchData {
   startDate?: string | null;
 }
 
+export interface UserScope {
+  userId: string;
+  role: string;
+}
+
 export class BatchModel {
-  static async findAll(trainerId?: string) {
+  static async findAll(user?: UserScope) {
     const db = getDb();
-    if (trainerId) {
-      // Find batches where trainer is assigned
+
+    // Trainers only see batches they created or are assigned to
+    if (user && user.role === 'trainer') {
       const assigned = await db
-        .select({
+        .selectDistinct({
           id: batches.id,
           name: batches.name,
           externalBatchId: batches.externalBatchId,
           startDate: batches.startDate,
+          createdBy: batches.createdBy,
           createdAt: batches.createdAt,
         })
         .from(batches)
-        .innerJoin(batchTrainers, eq(batches.id, batchTrainers.batchId))
-        .where(eq(batchTrainers.userId, trainerId))
-        .orderBy(batches.createdAt);
+        .leftJoin(batchTrainers, eq(batches.id, batchTrainers.batchId))
+        .where(
+          or(
+            eq(batches.createdBy, user.userId),
+            eq(batchTrainers.userId, user.userId)
+          )
+        )
+        .orderBy(desc(batches.createdAt));
+
       return assigned;
     }
 
+    // Admins and Managers read all batches
     return db.query.batches.findMany({
       orderBy: (batches, { desc }) => [desc(batches.createdAt)],
       with: {
@@ -45,8 +60,35 @@ export class BatchModel {
     });
   }
 
-  static async findById(id: string) {
+  static async findById(id: string, user?: UserScope) {
     const db = getDb();
+
+    if (user && user.role === 'trainer') {
+      const [batch] = await db
+        .selectDistinct({
+          id: batches.id,
+          name: batches.name,
+          externalBatchId: batches.externalBatchId,
+          startDate: batches.startDate,
+          createdBy: batches.createdBy,
+          createdAt: batches.createdAt,
+        })
+        .from(batches)
+        .leftJoin(batchTrainers, eq(batches.id, batchTrainers.batchId))
+        .where(
+          and(
+            eq(batches.id, id),
+            or(
+              eq(batches.createdBy, user.userId),
+              eq(batchTrainers.userId, user.userId)
+            )
+          )
+        )
+        .limit(1);
+
+      return batch || null;
+    }
+
     return db.query.batches.findFirst({
       where: eq(batches.id, id),
       with: {
@@ -59,8 +101,35 @@ export class BatchModel {
     });
   }
 
-  static async findByExternalId(externalBatchId: string) {
+  static async findByExternalId(externalBatchId: string, user?: UserScope) {
     const db = getDb();
+
+    if (user && user.role === 'trainer') {
+      const [batch] = await db
+        .selectDistinct({
+          id: batches.id,
+          name: batches.name,
+          externalBatchId: batches.externalBatchId,
+          startDate: batches.startDate,
+          createdBy: batches.createdBy,
+          createdAt: batches.createdAt,
+        })
+        .from(batches)
+        .leftJoin(batchTrainers, eq(batches.id, batchTrainers.batchId))
+        .where(
+          and(
+            eq(batches.externalBatchId, externalBatchId),
+            or(
+              eq(batches.createdBy, user.userId),
+              eq(batchTrainers.userId, user.userId)
+            )
+          )
+        )
+        .limit(1);
+
+      return batch || null;
+    }
+
     return db.query.batches.findFirst({
       where: eq(batches.externalBatchId, externalBatchId),
     });
@@ -74,24 +143,33 @@ export class BatchModel {
         name: data.name,
         externalBatchId: data.externalBatchId,
         startDate: data.startDate || null,
+        createdBy: data.createdBy,
       })
       .returning();
     return batch;
   }
 
-  static async update(id: string, data: UpdateBatchData) {
+  static async update(id: string, data: UpdateBatchData, user?: UserScope) {
     const db = getDb();
+    const conditions = [eq(batches.id, id)];
+    if (user && user.role !== 'admin') {
+      conditions.push(eq(batches.createdBy, user.userId));
+    }
     const [batch] = await db
       .update(batches)
       .set(data)
-      .where(eq(batches.id, id))
+      .where(and(...conditions))
       .returning();
     return batch;
   }
 
-  static async delete(id: string) {
+  static async delete(id: string, user?: UserScope) {
     const db = getDb();
-    const [deleted] = await db.delete(batches).where(eq(batches.id, id)).returning();
+    const conditions = [eq(batches.id, id)];
+    if (user && user.role !== 'admin') {
+      conditions.push(eq(batches.createdBy, user.userId));
+    }
+    const [deleted] = await db.delete(batches).where(and(...conditions)).returning();
     return deleted;
   }
 

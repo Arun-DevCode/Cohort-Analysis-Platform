@@ -7,7 +7,7 @@ import {
   batchTrainers,
   snapshots,
 } from '../db/schema/index.js';
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, or } from 'drizzle-orm';
 import {
   CreateFollowupInput,
   QueryFollowupsInput,
@@ -15,6 +15,7 @@ import {
 } from '../validators/followup.validator.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { AuditService } from './audit.service.js';
+import { batches } from '../db/schema/index.js';
 
 export interface UserContext {
   userId: string;
@@ -39,16 +40,22 @@ export class FollowupService {
       throw new AppError('Student not found', 404);
     }
 
-    // If trainer, verify student is in trainer's assigned batch
+    // If trainer, verify student is in trainer's accessible batches (created or assigned)
     if (user.role === 'trainer') {
-      const trainerBatches = await db
-        .select({ batchId: batchTrainers.batchId })
-        .from(batchTrainers)
-        .where(eq(batchTrainers.userId, user.userId));
+      const accessibleBatches = await db
+        .selectDistinct({ id: batches.id })
+        .from(batches)
+        .leftJoin(batchTrainers, eq(batches.id, batchTrainers.batchId))
+        .where(
+          or(
+            eq(batches.createdBy, user.userId),
+            eq(batchTrainers.userId, user.userId)
+          )
+        );
 
-      const batchIds = trainerBatches.map((b) => b.batchId);
+      const batchIds = accessibleBatches.map((b) => b.id);
       if (batchIds.length === 0) {
-        throw new AppError('Forbidden: student is not in your assigned batch', 403);
+        throw new AppError('Student not found', 404);
       }
 
       const [inBatch] = await db
@@ -63,7 +70,7 @@ export class FollowupService {
         .limit(1);
 
       if (!inBatch) {
-        throw new AppError('Forbidden: student is not in your assigned batch', 403);
+        throw new AppError('Student not found', 404);
       }
     }
 
@@ -116,12 +123,18 @@ export class FollowupService {
 
     // Role check for trainers
     if (user.role === 'trainer') {
-      const trainerBatches = await db
-        .select({ batchId: batchTrainers.batchId })
-        .from(batchTrainers)
-        .where(eq(batchTrainers.userId, user.userId));
+      const accessibleBatches = await db
+        .selectDistinct({ id: batches.id })
+        .from(batches)
+        .leftJoin(batchTrainers, eq(batches.id, batchTrainers.batchId))
+        .where(
+          or(
+            eq(batches.createdBy, user.userId),
+            eq(batchTrainers.userId, user.userId)
+          )
+        );
 
-      const batchIds = trainerBatches.map((b) => b.batchId);
+      const batchIds = accessibleBatches.map((b) => b.id);
       if (batchIds.length === 0) {
         return { data: [], page, pageSize, total: 0 };
       }
@@ -203,7 +216,7 @@ export class FollowupService {
     }
 
     if (user.role === 'trainer' && existing.ownerId !== user.userId) {
-      throw new AppError('Forbidden: you can only update your own follow-up notes', 403);
+      throw new AppError('Follow-up not found', 404);
     }
 
     const updateData: Partial<typeof followups.$inferInsert> = {};
@@ -241,7 +254,7 @@ export class FollowupService {
     }
 
     if (user.role !== 'admin' && existing.ownerId !== user.userId) {
-      throw new AppError('Forbidden: only admins or note authors can delete follow-up notes', 403);
+      throw new AppError('Follow-up not found', 404);
     }
 
     await db.delete(followups).where(eq(followups.id, id));

@@ -5,6 +5,7 @@ import { env } from '../config/env.js';
 export type UserRole = 'admin' | 'manager' | 'trainer';
 
 export interface TokenPayload {
+  id: string;
   userId: string;
   email: string;
   name?: string;
@@ -29,15 +30,17 @@ export class AuthService {
     }
   }
 
-  static generateTokens(payload: TokenPayload): { accessToken: string; refreshToken: string } {
+  static generateTokens(payload: { userId?: string; id?: string; email: string; name?: string; role: UserRole }): { accessToken: string; refreshToken: string } {
+    const id = payload.id || payload.userId || '';
+    const userId = payload.userId || payload.id || '';
     const accessToken = jwt.sign(
-      { userId: payload.userId, email: payload.email, name: payload.name, role: payload.role },
+      { id, userId, email: payload.email, name: payload.name, role: payload.role },
       env.JWT_SECRET,
       { expiresIn: '15m' }
     );
 
     const refreshToken = jwt.sign(
-      { userId: payload.userId, email: payload.email, name: payload.name, role: payload.role },
+      { id, userId, email: payload.email, name: payload.name, role: payload.role },
       env.REFRESH_SECRET,
       { expiresIn: '7d' }
     );
@@ -46,10 +49,23 @@ export class AuthService {
   }
 
   static verifyAccessToken(token: string): TokenPayload {
-    return jwt.verify(token, env.JWT_SECRET) as TokenPayload;
+    const decoded = jwt.verify(token, env.JWT_SECRET) as any;
+    const userId = decoded.userId || decoded.id;
+    return {
+      ...decoded,
+      id: userId,
+      userId,
+    };
   }
 
   static verifyRefreshToken(token: string): TokenPayload {
-    return jwt.verify(token, env.REFRESH_SECRET) as TokenPayload;
+    const decoded = jwt.verify(token, env.REFRESH_SECRET) as any;
+    const userId = decoded.userId || decoded.id;
+    return {
+      ...decoded,
+      id: userId,
+      userId,
+    };
   }
 }
+

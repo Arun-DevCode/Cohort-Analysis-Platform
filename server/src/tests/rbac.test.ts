@@ -55,13 +55,13 @@ describe('RBAC & Batch Access Integration Tests', () => {
     // 4. Create Two Batches
     const [b1] = await db
       .insert(batches)
-      .values({ name: 'Batch Alpha', externalBatchId: 'ALPHA-001' })
+      .values({ name: 'Batch Alpha', externalBatchId: 'ALPHA-001', createdBy: adminUser.id })
       .returning();
     batch1Id = b1.id;
 
     const [b2] = await db
       .insert(batches)
-      .values({ name: 'Batch Beta', externalBatchId: 'BETA-002' })
+      .values({ name: 'Batch Beta', externalBatchId: 'BETA-002', createdBy: adminUser.id })
       .returning();
     batch2Id = b2.id;
 
@@ -141,14 +141,13 @@ describe('RBAC & Batch Access Integration Tests', () => {
       expect(res.body.batch.id).toBe(batch1Id);
     });
 
-    it('Trainer is forbidden from accessing unassigned batch (403)', async () => {
+    it('Trainer is forbidden from accessing unassigned batch (404)', async () => {
       const res = await request(app)
         .get(`/api/v1/batches/${batch2Id}`)
         .set('Authorization', `Bearer ${trainerToken}`);
 
-      expect(res.status).toBe(403);
-      expect(res.body.code).toBe('FORBIDDEN');
-      expect(res.body.message).toContain('not assigned as a trainer');
+      expect(res.status).toBe(404);
+      expect(res.body.code).toBe('NOT_FOUND');
     });
 
     it('Trainer lists only assigned batches', async () => {

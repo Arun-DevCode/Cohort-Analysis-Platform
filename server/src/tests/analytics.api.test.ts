@@ -35,7 +35,7 @@ describe('Analytics & Insights API Integration Tests', () => {
     // Batch
     const [b] = await db
       .insert(batches)
-      .values({ name: 'Batch 15748', externalBatchId: 'BATCH-15748' })
+      .values({ name: 'Batch 15748', externalBatchId: 'BATCH-15748', createdBy: admin.id })
       .returning();
     batchId = b.id;
 

@@ -14,7 +14,24 @@ export function authenticate(req: Request, res: Response, next: NextFunction): v
   const token = authHeader.split(' ')[1];
   try {
     const payload = AuthService.verifyAccessToken(token);
-    req.user = payload;
+    req.user = {
+      ...payload,
+      id: payload.userId || payload.id,
+      userId: payload.userId || payload.id,
+    };
+
+    // Never accept userId, createdBy or ownerId from body, query or params
+    if (req.body && typeof req.body === 'object') {
+      delete (req.body as any).userId;
+      delete (req.body as any).createdBy;
+      delete (req.body as any).ownerId;
+    }
+    if (req.query && typeof req.query === 'object') {
+      delete (req.query as any).userId;
+      delete (req.query as any).createdBy;
+      delete (req.query as any).ownerId;
+    }
+
     next();
   } catch (err) {
     res.status(401).json({

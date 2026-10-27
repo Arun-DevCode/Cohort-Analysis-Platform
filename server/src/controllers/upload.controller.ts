@@ -2,8 +2,8 @@ import { Request, Response, NextFunction } from 'express';
 import { IngestionService } from '../services/ingestion/index.js';
 import { UploadView } from '../views/upload.view.js';
 import { getDb } from '../db/client.js';
-import { uploads } from '../db/schema/index.js';
-import { eq } from 'drizzle-orm';
+import { batches, batchTrainers, uploads } from '../db/schema/index.js';
+import { and, eq } from 'drizzle-orm';
 
 export class UploadController {
   static async uploadReport(req: Request, res: Response, next: NextFunction): Promise<void> {
@@ -16,7 +16,7 @@ export class UploadController {
         return;
       }
 
-      const batchId = req.params.batchId || req.params.id;
+      const rawBatchId = req.params.batchId || req.params.id;
       const snapshotDate =
         req.body.snapshotDate || new Date().toISOString().split('T')[0];
       const replace =
@@ -24,10 +24,51 @@ export class UploadController {
         req.body.replace === 'true' ||
         req.query.replace === 'true';
 
+      const db = getDb();
+      let targetBatch = await db.query.batches.findFirst({
+        where: eq(batches.id, rawBatchId),
+      });
+
+      if (!targetBatch) {
+        // Create new batch owned by req.user.userId
+        const batchName = req.body.batchName || req.file.originalname.replace(/\.[^/.]+$/, '');
+        const externalBatchId = req.body.externalBatchId || rawBatchId;
+        const [newBatch] = await db
+          .insert(batches)
+          .values({
+            id: rawBatchId.includes('-') && rawBatchId.length === 36 ? rawBatchId : undefined,
+            name: batchName,
+            externalBatchId,
+            startDate: snapshotDate,
+            createdBy: req.user!.userId,
+          })
+          .returning();
+        targetBatch = newBatch;
+      } else {
+        // If batch already exists, verify trainer access
+        if (req.user!.role === 'trainer') {
+          const isCreator = targetBatch.createdBy === req.user!.userId;
+          const isAssigned = await db.query.batchTrainers.findFirst({
+            where: and(
+              eq(batchTrainers.batchId, targetBatch.id),
+              eq(batchTrainers.userId, req.user!.userId)
+            ),
+          });
+
+          if (!isCreator && !isAssigned) {
+            res.status(404).json({
+              code: 'NOT_FOUND',
+              message: 'Batch not found',
+            });
+            return;
+          }
+        }
+      }
+
       const result = await IngestionService.ingest({
         fileBuffer: req.file.buffer,
         fileName: req.file.originalname,
-        batchId,
+        batchId: targetBatch.id,
         snapshotDate,
         userId: req.user!.userId,
         replace,
@@ -72,7 +113,7 @@ export class UploadController {
 
       if (!upload) {
         res.status(404).json({
-          code: 'UPLOAD_NOT_FOUND',
+          code: 'NOT_FOUND',
           message: 'Upload not found',
         });
         return;

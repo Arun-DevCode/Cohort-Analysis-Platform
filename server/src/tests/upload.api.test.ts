@@ -60,13 +60,13 @@ describe('Upload & Snapshot Ingestion API Integration Tests', () => {
     // Batches
     const [b1] = await db
       .insert(batches)
-      .values({ name: 'Batch 15748', externalBatchId: 'BATCH-15748' })
+      .values({ name: 'Batch 15748', externalBatchId: 'BATCH-15748', createdBy: admin.id })
       .returning();
     batchId = b1.id;
 
     const [b2] = await db
       .insert(batches)
-      .values({ name: 'Batch Unassigned', externalBatchId: 'BATCH-99999' })
+      .values({ name: 'Batch Unassigned', externalBatchId: 'BATCH-99999', createdBy: admin.id })
       .returning();
     unassignedBatchId = b2.id;
 
@@ -161,14 +161,14 @@ describe('Upload & Snapshot Ingestion API Integration Tests', () => {
     expect(res.status).toBe(201);
   });
 
-  it('Trainer is forbidden from uploading to unassigned batch (403)', async () => {
+  it('Trainer is forbidden from uploading to unassigned batch (404)', async () => {
     const res = await request(app)
       .post(`/api/v1/batches/${unassignedBatchId}/uploads`)
       .set('Authorization', `Bearer ${trainerToken}`)
       .attach('file', fixturePath)
       .field('snapshotDate', '2026-10-21');
 
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(404);
   });
 
   it('Manager cannot upload files (403)', async () => {

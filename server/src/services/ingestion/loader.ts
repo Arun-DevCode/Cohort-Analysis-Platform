@@ -1,5 +1,6 @@
 import { getDb } from '../../db/client.js';
 import {
+  batches,
   snapshots,
   studentSnapshots,
   students,
@@ -57,18 +58,29 @@ export class SnapshotLoader {
         await tx.delete(snapshots).where(eq(snapshots.id, existingSnapshot.id));
       }
 
-      // 2. Upsert Students and link to Batch
+      // 2. Upsert Students (scoped to batch owner) and link to Batch
+      const [batchRecord] = await tx
+        .select({ createdBy: batches.createdBy })
+        .from(batches)
+        .where(eq(batches.id, options.batchId))
+        .limit(1);
+
+      const ownerId = batchRecord ? batchRecord.createdBy : options.userId;
       const studentIdMap = new Map<string, string>(); // externalStudentId -> uuid
 
       for (const st of ingestion.students) {
         let studentRecord = await tx.query.students.findFirst({
-          where: eq(students.externalStudentId, st.externalStudentId),
+          where: and(
+            eq(students.createdBy, ownerId),
+            eq(students.externalStudentId, st.externalStudentId)
+          ),
         });
 
         if (!studentRecord) {
           const [inserted] = await tx
             .insert(students)
             .values({
+              createdBy: ownerId,
               externalStudentId: st.externalStudentId,
               name: st.name,
               phoneE164: st.phoneE164,
