@@ -1,7 +1,23 @@
-import pino from 'pino';
+import pino, { type LoggerOptions } from 'pino';
+import { createRequire } from 'module';
 import { env } from '../config/env.js';
 
-export const logger = pino({
+const require = createRequire(import.meta.url);
+
+function canResolvePinoPretty(): boolean {
+  try {
+    require.resolve('pino-pretty');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Pretty print only in development IF pino-pretty is installed.
+// In production or inside slim containers, default strictly to pure structured JSON.
+const isPrettyEnabled = env.NODE_ENV === 'development' && canResolvePinoPretty();
+
+const loggerOptions: LoggerOptions = {
   level: env.LOG_LEVEL,
   redact: {
     paths: [
@@ -20,14 +36,18 @@ export const logger = pino({
     ],
     censor: '[REDACTED]',
   },
-  transport:
-    env.NODE_ENV === 'development'
-      ? {
+  ...(isPrettyEnabled
+    ? {
+        transport: {
           target: 'pino-pretty',
           options: {
             colorize: true,
             ignore: 'pid,hostname',
+            translateTime: 'SYS:standard',
           },
-        }
-      : undefined,
-});
+        },
+      }
+    : {}),
+};
+
+export const logger = pino(loggerOptions);

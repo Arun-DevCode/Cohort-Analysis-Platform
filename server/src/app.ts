@@ -8,6 +8,8 @@ import { logger } from './utils/logger.js';
 import { apiRouter } from './routes/index.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { generateOpenApiDocument } from './docs/openapi.js';
+import { getDb } from './db/client.js';
+import { sql } from 'drizzle-orm';
 
 export const app = express();
 
@@ -43,6 +45,25 @@ app.get('/api-docs.json', (req, res) => {
   res.send(openApiDoc);
 });
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(openApiDoc));
+
+// Root health check endpoint (standard for Render, Docker, AWS, and K8s probes)
+app.get('/health', async (_req, res) => {
+  let dbStatus: 'connected' | 'disconnected' = 'connected';
+  try {
+    const db = getDb();
+    await db.execute(sql`SELECT 1`);
+  } catch {
+    dbStatus = 'disconnected';
+  }
+
+  const isHealthy = dbStatus === 'connected';
+  res.status(isHealthy ? 200 : 503).json({
+    status: isHealthy ? 'ok' : 'degraded',
+    uptime: process.uptime(),
+    database: dbStatus,
+    timestamp: new Date().toISOString(),
+  });
+});
 
 // API v1 routes
 app.use('/api/v1', apiRouter);
