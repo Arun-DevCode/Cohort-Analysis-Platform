@@ -45,7 +45,10 @@ export interface UploadResponse {
   errorReport?: Record<string, unknown>;
 }
 
-const API_BASE = '/api/v1';
+const RAW_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined)?.trim() || '';
+export const API_BASE = RAW_BASE_URL
+  ? `${RAW_BASE_URL.replace(/\/+$/, '')}/api/v1`
+  : '/api/v1';
 
 class ApiClient {
   private accessToken: string | null = null;

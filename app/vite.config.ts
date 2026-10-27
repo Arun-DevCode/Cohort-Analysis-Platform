@@ -31,7 +31,7 @@ export default defineConfig({
                 JSON.stringify({
                   status: "error",
                   message:
-                    "Backend API is currently unavailable. Ensure the server is running on port 4000.",
+                    "Backend API is currently unavailable. Ensure the server is running at https://api-cohortpregressreport.onrender.com.",
                 }),
               );
             }

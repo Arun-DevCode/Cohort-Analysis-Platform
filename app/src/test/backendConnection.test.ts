@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { apiClient } from '../core/api/client';
+import { apiClient, API_BASE } from '../core/api/client';
 
 describe('Frontend API Client & Backend Connection Tests', () => {
   beforeEach(() => {
@@ -18,7 +18,7 @@ describe('Frontend API Client & Backend Connection Tests', () => {
     const health = await apiClient.checkHealth();
     expect(health.status).toBe('ok');
     expect(health.database).toBe('connected');
-    expect(global.fetch).toHaveBeenCalledWith('/api/v1/health', expect.any(Object));
+    expect(global.fetch).toHaveBeenCalledWith(`${API_BASE}/health`, expect.any(Object));
   });
 
   it('logs in, stores JWT tokens in localStorage, and tracks user', async () => {
