@@ -1,6 +1,10 @@
 import { db } from '../db';
-import type { Student, Session, AttendanceRecord, WeeklyConsumption, AssignmentResult } from '@/types';
-import { computeAverage } from './index';
+import type { Session, AttendanceRecord, WeeklyConsumption, AssignmentResult } from '@/types';
+import {
+  calculateCohortComparison,
+  computeAverage,
+  type CohortComparisonData,
+} from './sharedMetrics';
 
 export interface CompatibilityCheckItem {
   name: string;
@@ -34,6 +38,7 @@ export interface StrictCompareResult {
   daysGap?: number;
   sameItemsOnly?: boolean;
   fairComparisonNote?: string | null;
+  sharedData?: CohortComparisonData;
   metrics?: Record<string, MetricComparisonItem>;
   headlineMetrics?: string[];
   learnerComparisons?: Array<{
@@ -138,14 +143,6 @@ export interface StrictCompareResult {
   };
 }
 
-function computeMedian(arr: number[]): number {
-  if (arr.length === 0) return 0;
-  const sorted = [...arr].sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  const med = sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
-  return Number(med.toFixed(1));
-}
-
 function normalizeTitle(t: string): string {
   return t
     .replace(/[-_/\s]*\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}\s*$/i, '')
@@ -200,7 +197,6 @@ export async function compareSnapshotsLocal(
   const leftStudentSnaps = await db.studentSnapshots.where('snapshotId').equals(leftSnap.id).toArray();
   const rightStudentSnaps = await db.studentSnapshots.where('snapshotId').equals(rightSnap.id).toArray();
   const allStudents = await db.students.toArray();
-  const studentMap = new Map<string, Student>(allStudents.map((s) => [s.id, s]));
 
   // 3. Learners Match 100% check
   const leftKeys = new Set(leftStudentSnaps.map((s) => s.studentId));
@@ -260,100 +256,38 @@ export async function compareSnapshotsLocal(
   const extraSessionTitles = Array.from(rightSessionTitles).filter((t) => !leftSessionTitles.has(t));
   const hasExtraItems = extraAssignNames.length > 0 || extraSessionTitles.length > 0;
 
-  // Student metrics maps
-  const leftStudMap = new Map(leftStudentSnaps.map((s) => [s.studentId, s]));
-  const rightStudMap = new Map(rightStudentSnaps.map((s) => [s.studentId, s]));
+  // Attendance records for session comparison
+  const allAttRecords: AttendanceRecord[] = await db.attendance.toArray();
 
-  // Learners list
-  const learnerComparisons = Array.from(leftKeys).map((studentId) => {
-    const l = leftStudMap.get(studentId)!;
-    const r = rightStudMap.get(studentId)!;
-    const info = studentMap.get(studentId);
-
-    const lComposite = Number(
-      (
-        l.metrics.assignmentSubmissionPct * 0.4 +
-        l.metrics.totalConsumptionPct * 0.3 +
-        l.metrics.liveOrRecordingPct * 0.3
-      ).toFixed(1)
-    );
-    const rComposite = Number(
-      (
-        r.metrics.assignmentSubmissionPct * 0.4 +
-        r.metrics.totalConsumptionPct * 0.3 +
-        r.metrics.liveOrRecordingPct * 0.3
-      ).toFixed(1)
-    );
-    const compDelta = Number((rComposite - lComposite).toFixed(1));
-
-    let status: 'Improved' | 'Same' | 'Declined' = 'Same';
-    if (compDelta >= tolerance) status = 'Improved';
-    else if (compDelta <= -tolerance) status = 'Declined';
-
-    const assignDelta = Number((r.metrics.assignmentSubmissionPct - l.metrics.assignmentSubmissionPct).toFixed(1));
-    const contentDelta = Number((r.metrics.totalConsumptionPct - l.metrics.totalConsumptionPct).toFixed(1));
-    const attendDelta = Number((r.metrics.liveOrRecordingPct - l.metrics.liveOrRecordingPct).toFixed(1));
-
-    const isFirstTimeSubmitter = l.metrics.assignmentSubmissionPct === 0 && r.metrics.assignmentSubmissionPct > 0;
-    const isStoppedAttending = l.metrics.liveClassPct > 0 && r.metrics.liveClassPct === 0;
-
-    return {
-      studentId,
-      externalStudentId: info?.externalStudentId || studentId,
-      name: info?.name || 'Learner',
-      phoneE164: info?.phoneE164 || '',
-      leftSegment: l.segment as string,
-      rightSegment: r.segment as string,
-      leftComposite: lComposite,
-      rightComposite: rComposite,
-      compositeChange: compDelta,
-      status,
-      assignmentDelta: assignDelta,
-      contentDelta,
-      liveOrRecDelta: attendDelta,
-      isFirstTimeSubmitter,
-      isStoppedAttending,
-      leftMetrics: {
-        assignmentSubmissionPct: l.metrics.assignmentSubmissionPct,
-        totalConsumptionPct: l.metrics.totalConsumptionPct,
-        liveClassPct: l.metrics.liveClassPct,
-        liveOrRecordingPct: l.metrics.liveOrRecordingPct,
-      },
-      rightMetrics: {
-        assignmentSubmissionPct: r.metrics.assignmentSubmissionPct,
-        totalConsumptionPct: r.metrics.totalConsumptionPct,
-        liveClassPct: r.metrics.liveClassPct,
-        liveOrRecordingPct: r.metrics.liveOrRecordingPct,
-      },
-    };
+  // Unified Cohort Comparison Calculation via Shared Metrics Module
+  const sharedData = calculateCohortComparison({
+    batch,
+    baselineSnap: leftSnap,
+    currentSnap: rightSnap,
+    baselineStudentSnaps: leftStudentSnaps,
+    currentStudentSnaps: rightStudentSnaps,
+    students: allStudents,
+    baselineAssignments: leftAssigns,
+    currentAssignments: rightAssigns,
+    baselineSessions: leftSessions,
+    currentSessions: rightSessions,
+    attendanceRecords: allAttRecords,
+    sameItemsOnly: sameItems,
+    tolerance,
   });
 
-  // Top improvers & decliners
-  const sortedByGain = [...learnerComparisons].sort((a, b) => b.compositeChange - a.compositeChange);
-  const topImprovers = sortedByGain
-    .filter((l) => l.compositeChange >= tolerance)
-    .slice(0, 5)
-    .map((l) => ({
-      studentId: l.studentId,
-      name: l.name,
-      phoneE164: l.phoneE164,
-      deltaPts: l.compositeChange,
-      segment: l.rightSegment,
-    }));
+  const learnerComparisons = sharedData.learners;
+  const topImprovers = sharedData.topImprovers;
+  const topDecliners = sharedData.topDecliners;
+  const matrix = sharedData.segmentMatrix.matrix;
+  const movedUp = sharedData.segmentMatrix.movedUp;
+  const movedDown = sharedData.segmentMatrix.movedDown;
+  const unchanged = sharedData.segmentMatrix.unchanged;
 
-  const topDecliners = sortedByGain
-    .filter((l) => l.compositeChange <= -tolerance)
-    .reverse()
-    .slice(0, 5)
-    .map((l) => ({
-      studentId: l.studentId,
-      name: l.name,
-      phoneE164: l.phoneE164,
-      deltaPts: l.compositeChange,
-      segment: l.rightSegment,
-    }));
+  const newlyAtRisk = sharedData.atRiskMovement.newlyAtRisk;
+  const recovered = sharedData.atRiskMovement.recovered;
+  const stillAtRisk = sharedData.atRiskMovement.stillAtRisk;
 
-  // First-time submitters & stopped attending
   const firstTimeSubmitters = learnerComparisons
     .filter((l) => l.isFirstTimeSubmitter)
     .map((l) => ({ studentId: l.studentId, name: l.name, phoneE164: l.phoneE164 }));
@@ -362,93 +296,51 @@ export async function compareSnapshotsLocal(
     .filter((l) => l.isStoppedAttending)
     .map((l) => ({ studentId: l.studentId, name: l.name, phoneE164: l.phoneE164 }));
 
-  // 3x3 Segment Movement Matrix
-  const matrix: Record<string, Record<string, number>> = {
-    High: { High: 0, Medium: 0, Low: 0 },
-    Medium: { High: 0, Medium: 0, Low: 0 },
-    Low: { High: 0, Medium: 0, Low: 0 },
-  };
-  let movedUp = 0;
-  let movedDown = 0;
-  let unchanged = 0;
-
-  const segmentOrder: Record<string, number> = { High: 3, Medium: 2, Low: 1 };
-  for (const l of learnerComparisons) {
-    const from = l.leftSegment in matrix ? l.leftSegment : 'Low';
-    const to = l.rightSegment in matrix ? l.rightSegment : 'Low';
-    matrix[from][to] = (matrix[from][to] || 0) + 1;
-
-    const fromVal = segmentOrder[from] || 1;
-    const toVal = segmentOrder[to] || 1;
-    if (toVal > fromVal) movedUp++;
-    else if (toVal < fromVal) movedDown++;
-    else unchanged++;
-  }
-
-  // At-Risk Movement (Low segment or assignment < 50%)
-  const leftAtRisk = learnerComparisons.filter(
-    (l) => l.leftSegment === 'Low' || l.leftMetrics.assignmentSubmissionPct < 50
-  );
-  const rightAtRisk = learnerComparisons.filter(
-    (l) => l.rightSegment === 'Low' || l.rightMetrics.assignmentSubmissionPct < 50
-  );
-
-  const leftAtRiskIds = new Set(leftAtRisk.map((l) => l.studentId));
-  const rightAtRiskIds = new Set(rightAtRisk.map((l) => l.studentId));
-
-  const newlyAtRisk = rightAtRisk
-    .filter((l) => !leftAtRiskIds.has(l.studentId))
-    .map((l) => ({ studentId: l.studentId, name: l.name, phoneE164: l.phoneE164, reasons: ['Composite dropped below safe threshold'] }));
-
-  const recovered = leftAtRisk
-    .filter((l) => !rightAtRiskIds.has(l.studentId))
-    .map((l) => ({ studentId: l.studentId, name: l.name, phoneE164: l.phoneE164, reasons: ['Recovered above critical threshold'] }));
-
-  const stillAtRisk = rightAtRisk
-    .filter((l) => leftAtRiskIds.has(l.studentId))
-    .map((l) => ({ studentId: l.studentId, name: l.name, phoneE164: l.phoneE164, reasons: ['Persistent academic or attendance risk'] }));
-
-  // Metrics comparison (Assignment, Consumption, Live Attendance, Live+Rec)
-  const lAssignList = learnerComparisons.map((l) => l.leftMetrics.assignmentSubmissionPct);
-  const rAssignList = learnerComparisons.map((l) => l.rightMetrics.assignmentSubmissionPct);
-  const lContentList = learnerComparisons.map((l) => l.leftMetrics.totalConsumptionPct);
-  const rContentList = learnerComparisons.map((l) => l.rightMetrics.totalConsumptionPct);
-  const lLiveList = learnerComparisons.map((l) => l.leftMetrics.liveClassPct);
-  const rLiveList = learnerComparisons.map((l) => l.rightMetrics.liveClassPct);
-  const lAttendList = learnerComparisons.map((l) => l.leftMetrics.liveOrRecordingPct);
-  const rAttendList = learnerComparisons.map((l) => l.rightMetrics.liveOrRecordingPct);
-
-  function makeMetricItem(leftArr: number[], rightArr: number[]): MetricComparisonItem {
-    const lAvg = computeAverage(leftArr);
-    const rAvg = computeAverage(rightArr);
-    const delta = Number((rAvg - lAvg).toFixed(1));
-    let status: 'Improved' | 'Same' | 'Declined' = 'Same';
-    let arrow = '→';
-    if (delta >= tolerance) {
-      status = 'Improved';
-      arrow = '↑';
-    } else if (delta <= -tolerance) {
-      status = 'Declined';
-      arrow = '↓';
-    }
-    return {
-      leftValue: lAvg,
-      rightValue: rAvg,
-      deltaPts: delta,
-      status,
-      arrow,
-      leftAvg: lAvg,
-      rightAvg: rAvg,
-      leftMedian: computeMedian(leftArr),
-      rightMedian: computeMedian(rightArr),
-    };
-  }
-
   const metrics: Record<string, MetricComparisonItem> = {
-    assignmentSubmission: makeMetricItem(lAssignList, rAssignList),
-    contentConsumption: makeMetricItem(lContentList, rContentList),
-    liveAttendance: makeMetricItem(lLiveList, rLiveList),
-    attendance: makeMetricItem(lAttendList, rAttendList),
+    assignmentSubmission: {
+      leftValue: sharedData.metrics.assignmentSubmission.baselineDisplay,
+      rightValue: sharedData.metrics.assignmentSubmission.currentDisplay,
+      deltaPts: sharedData.metrics.assignmentSubmission.deltaDisplay,
+      status: sharedData.metrics.assignmentSubmission.status,
+      arrow: sharedData.metrics.assignmentSubmission.deltaDisplay > 0 ? '↑' : sharedData.metrics.assignmentSubmission.deltaDisplay < 0 ? '↓' : '→',
+      leftAvg: sharedData.metrics.assignmentSubmission.baselineDisplay,
+      rightAvg: sharedData.metrics.assignmentSubmission.currentDisplay,
+      leftMedian: sharedData.metrics.assignmentSubmission.baselineMedian,
+      rightMedian: sharedData.metrics.assignmentSubmission.currentMedian,
+    },
+    contentConsumption: {
+      leftValue: sharedData.metrics.contentConsumption.baselineDisplay,
+      rightValue: sharedData.metrics.contentConsumption.currentDisplay,
+      deltaPts: sharedData.metrics.contentConsumption.deltaDisplay,
+      status: sharedData.metrics.contentConsumption.status,
+      arrow: sharedData.metrics.contentConsumption.deltaDisplay > 0 ? '↑' : sharedData.metrics.contentConsumption.deltaDisplay < 0 ? '↓' : '→',
+      leftAvg: sharedData.metrics.contentConsumption.baselineDisplay,
+      rightAvg: sharedData.metrics.contentConsumption.currentDisplay,
+      leftMedian: sharedData.metrics.contentConsumption.baselineMedian,
+      rightMedian: sharedData.metrics.contentConsumption.currentMedian,
+    },
+    liveAttendance: {
+      leftValue: sharedData.metrics.liveAttendance.baselineDisplay,
+      rightValue: sharedData.metrics.liveAttendance.currentDisplay,
+      deltaPts: sharedData.metrics.liveAttendance.deltaDisplay,
+      status: sharedData.metrics.liveAttendance.status,
+      arrow: sharedData.metrics.liveAttendance.deltaDisplay > 0 ? '↑' : sharedData.metrics.liveAttendance.deltaDisplay < 0 ? '↓' : '→',
+      leftAvg: sharedData.metrics.liveAttendance.baselineDisplay,
+      rightAvg: sharedData.metrics.liveAttendance.currentDisplay,
+      leftMedian: sharedData.metrics.liveAttendance.baselineMedian,
+      rightMedian: sharedData.metrics.liveAttendance.currentMedian,
+    },
+    attendance: {
+      leftValue: sharedData.metrics.attendance.baselineDisplay,
+      rightValue: sharedData.metrics.attendance.currentDisplay,
+      deltaPts: sharedData.metrics.attendance.deltaDisplay,
+      status: sharedData.metrics.attendance.status,
+      arrow: sharedData.metrics.attendance.deltaDisplay > 0 ? '↑' : sharedData.metrics.attendance.deltaDisplay < 0 ? '↓' : '→',
+      leftAvg: sharedData.metrics.attendance.baselineDisplay,
+      rightAvg: sharedData.metrics.attendance.currentDisplay,
+      leftMedian: sharedData.metrics.attendance.baselineMedian,
+      rightMedian: sharedData.metrics.attendance.currentMedian,
+    },
   };
 
   // Assignment Comparison list
@@ -514,7 +406,6 @@ export async function compareSnapshotsLocal(
   });
 
   // Session Comparison list with AttendanceRecords
-  const allAttRecords: AttendanceRecord[] = await db.attendance.toArray();
   const leftSessionMap = new Map<string, Session>();
   for (const s of leftSessions) {
     leftSessionMap.set(normalizeTitle(s.title), s);
@@ -646,6 +537,7 @@ export async function compareSnapshotsLocal(
     fairComparisonNote: hasExtraItems
       ? `${extraAssignNames.length} new assignments and ${extraSessionTitles.length} new sessions in current report`
       : null,
+    sharedData,
     metrics,
     headlineMetrics: [
       `Assignments: ${metrics.assignmentSubmission.arrow} ${metrics.assignmentSubmission.deltaPts >= 0 ? '+' : ''}${metrics.assignmentSubmission.deltaPts} pp`,

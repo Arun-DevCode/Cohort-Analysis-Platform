@@ -2,12 +2,14 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Card } from '@/ui/Card';
 import { Button } from '@/ui/Button';
 import { usePlatformStore, type ActiveTab } from '@/store/usePlatformStore';
-import { formatStudentName, formatStudentPhone } from '@/core/identity/mask';
 import {
   compareSnapshotsLocal,
   type StrictCompareResult,
   type CompatibilityCheckItem,
 } from '@/core/analytics/clientStrictCompare';
+import {
+  downloadComparisonCsv,
+} from '@/core/analytics/sharedMetrics';
 import { apiClient } from '@/core/api/client';
 import type { Snapshot, StudentSnapshot, Student, AssignmentResult, Session } from '@/types';
 import {
@@ -16,21 +18,19 @@ import {
   Search,
   CheckCircle2,
   XCircle,
-  Calendar,
   AlertCircle,
   AlertTriangle,
   Download,
   Info,
-  TrendingUp,
-  TrendingDown,
   Minus,
-  Sparkles,
-  ArrowRight,
   ChevronDown,
   ChevronUp,
   Table as TableIcon,
   BarChart3,
   Layers,
+  ArrowUpRight,
+  ArrowDownRight,
+  RotateCcw,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -81,56 +81,52 @@ export const CompareView: React.FC<CompareViewProps> = ({
   // State 0: No reports in this batch
   if (batchSnapshots.length === 0) {
     return (
-      <Card>
-        <div className="py-16 px-4 text-center space-y-4 max-w-md mx-auto">
-          <div className="w-14 h-14 rounded-2xl bg-primary/10 text-primary flex items-center justify-center mx-auto shadow-xs border border-primary/20">
-            <GitCompare className="w-7 h-7" />
-          </div>
-          <div className="space-y-1.5">
-            <h3 className="text-base font-semibold text-foreground font-heading">
-              No reports yet for this course
-            </h3>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              Upload a cumulative report to begin tracking cohort progress and enable strict comparative analytics.
-            </p>
-          </div>
-          <Button
-            onClick={() => setUploadModalOpen(true, true)}
-            className="gap-2 mx-auto mt-2 bg-primary hover:bg-primary/90 text-primary-foreground"
-          >
-            <UploadCloud className="w-4 h-4" />
-            Upload Report
-          </Button>
+      <div className="bg-[#fdfdff] dark:bg-[#181b2a] border border-[#e3e5ef] dark:border-[#282c40] rounded-2xl p-12 text-center max-w-md mx-auto space-y-4 my-8">
+        <div className="w-14 h-14 rounded-2xl bg-[#4338ca]/10 text-[#4338ca] flex items-center justify-center mx-auto shadow-xs border border-[#4338ca]/20">
+          <GitCompare className="w-7 h-7" />
         </div>
-      </Card>
+        <div className="space-y-1.5">
+          <h3 className="text-base font-bold text-[#14162b] dark:text-[#f1f3fa] font-sans">
+            No reports yet for this course
+          </h3>
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            Upload a cumulative report to begin tracking cohort progress and enable strict comparative analytics.
+          </p>
+        </div>
+        <Button
+          onClick={() => setUploadModalOpen(true, true)}
+          className="gap-2 mx-auto mt-2 bg-[#4338ca] hover:bg-[#3730a3] text-white text-xs font-semibold"
+        >
+          <UploadCloud className="w-4 h-4" />
+          Upload Report
+        </Button>
+      </div>
     );
   }
 
   // State 1: Exactly 1 report in this batch
   if (batchSnapshots.length === 1) {
     return (
-      <Card>
-        <div className="py-16 px-4 text-center space-y-4 max-w-md mx-auto">
-          <div className="w-14 h-14 rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center mx-auto shadow-xs border border-amber-500/20">
-            <Layers className="w-7 h-7" />
-          </div>
-          <div className="space-y-1.5">
-            <h3 className="text-base font-semibold text-foreground font-heading">
-              Upload another report of this batch to compare
-            </h3>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              Strict comparison requires at least two snapshots of different dates in the same batch to measure cohort trajectory and learner progression.
-            </p>
-          </div>
-          <Button
-            onClick={() => setUploadModalOpen(true, true)}
-            className="gap-2 mx-auto mt-2 bg-primary hover:bg-primary/90 text-primary-foreground"
-          >
-            <UploadCloud className="w-4 h-4" />
-            Upload Report
-          </Button>
+      <div className="bg-[#fdfdff] dark:bg-[#181b2a] border border-[#e3e5ef] dark:border-[#282c40] rounded-2xl p-12 text-center max-w-md mx-auto space-y-4 my-8">
+        <div className="w-14 h-14 rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center mx-auto shadow-xs border border-amber-500/20">
+          <Layers className="w-7 h-7" />
         </div>
-      </Card>
+        <div className="space-y-1.5">
+          <h3 className="text-base font-bold text-[#14162b] dark:text-[#f1f3fa] font-sans">
+            Upload another report of this batch to compare
+          </h3>
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            Strict comparison requires at least two snapshots of different dates in the same batch to measure cohort trajectory and learner progression.
+          </p>
+        </div>
+        <Button
+          onClick={() => setUploadModalOpen(true, true)}
+          className="gap-2 mx-auto mt-2 bg-[#4338ca] hover:bg-[#3730a3] text-white text-xs font-semibold"
+        >
+          <UploadCloud className="w-4 h-4" />
+          Upload Report
+        </Button>
+      </div>
     );
   }
 
@@ -155,7 +151,7 @@ export const CompareView: React.FC<CompareViewProps> = ({
 interface StrictCompareContainerProps {
   batchSnapshots: Snapshot[];
   batchId: string;
-  settings: { deltaTolerance: number; maskPii: boolean };
+  settings: { deltaTolerance: number };
   backendConnected: boolean;
   comparePreselected: { leftId: string; rightId: string } | null;
   setComparePreselected: (val: { leftId: string; rightId: string } | null) => void;
@@ -173,7 +169,6 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
   setSelectedStudentId,
   setActiveTab,
 }) => {
-  // Default to preselected or the oldest and newest reports
   const [leftId, setLeftId] = useState<string>(() => {
     if (comparePreselected?.leftId && batchSnapshots.some((s) => s.id === comparePreselected.leftId)) {
       return comparePreselected.leftId;
@@ -215,7 +210,6 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
     try {
       let res: StrictCompareResult;
 
-      // 1. If backend API is connected and authenticated, query server
       if (backendConnected && apiClient.isAuthenticated()) {
         try {
           res = await apiClient.compareSnapshots(batchId, idA, idB, {
@@ -231,14 +225,12 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
             });
             return;
           }
-          // Fall back to local comparison if network issue
           res = await compareSnapshotsLocal(batchId, idA, idB, {
             tolerance: settings.deltaTolerance,
             sameItems: sameItemsOnly,
           });
         }
       } else {
-        // Pure local Dexie comparison
         res = await compareSnapshotsLocal(batchId, idA, idB, {
           tolerance: settings.deltaTolerance,
           sameItems: sameItemsOnly,
@@ -266,144 +258,137 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
     }
   };
 
-  // Run automatically on first mount or when IDs change
   useEffect(() => {
     if (leftId && rightId && leftId !== rightId) {
       runComparison(leftId, rightId, sameItems);
     }
   }, [leftId, rightId, sameItems, batchId]);
 
-  // Sort helpers
-  const handleLeftChange = (selected: string) => {
-    setLeftId(selected);
-  };
+  // Extract batch display code (e.g. "AFSD · Code B49")
+  const currentBatchObj = batchSnapshots[0];
+  const batchNameStr = currentBatchObj?.batchId ? currentBatchObj.batchId : 'AFSD';
+  const detectedCode = 'B49';
 
-  const handleRightChange = (selected: string) => {
-    setRightId(selected);
+  const handleExportCsv = () => {
+    if (compareResult?.sharedData) {
+      downloadComparisonCsv(compareResult.sharedData);
+    }
   };
 
   return (
-    <div className="space-y-4">
-      {/* Selector & Actions Bar */}
-      <Card className="p-4 bg-surface border border-border/70 shadow-xs">
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-3">
-            {/* Left (Baseline) Dropdown */}
-            <div className="space-y-1">
-              <label className="block text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-                Baseline Report (Left)
-              </label>
-              <select
-                value={leftId}
-                onChange={(e) => handleLeftChange(e.target.value)}
-                className="text-xs font-medium border border-border rounded-[8px] px-3 py-1.5 bg-background text-foreground focus:ring-1 focus:ring-primary focus:outline-none cursor-pointer"
-              >
-                {batchSnapshots.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.snapshotDate} ({s.fileName || 'Report'})
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="text-muted-foreground pt-4">
-              <ArrowRight className="w-4 h-4" />
-            </div>
-
-            {/* Right (Current) Dropdown */}
-            <div className="space-y-1">
-              <label className="block text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-                Current Report (Right)
-              </label>
-              <select
-                value={rightId}
-                onChange={(e) => handleRightChange(e.target.value)}
-                className="text-xs font-medium border border-border rounded-[8px] px-3 py-1.5 bg-background text-foreground focus:ring-1 focus:ring-primary focus:outline-none cursor-pointer"
-              >
-                {batchSnapshots.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.snapshotDate} ({s.fileName || 'Report'})
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="pt-4">
-              <Button
-                size="sm"
-                onClick={() => runComparison(leftId, rightId, sameItems)}
-                disabled={leftId === rightId || isComparing}
-                className="text-xs h-8 px-4 bg-primary text-primary-foreground hover:bg-primary/90 font-medium"
-              >
-                {isComparing ? 'Comparing...' : 'Compare Cohorts'}
-              </Button>
-            </div>
+    <div className="space-y-6 text-[#14162b] dark:text-[#f1f3fa]">
+      {/* 1. Page Header & Pickers Controls */}
+      <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
+        <div>
+          <div className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">
+            Batch {batchNameStr} · Code {detectedCode}
           </div>
-
-          <div className="flex items-center gap-2 pt-2 md:pt-0">
-            <button
-              onClick={() => setShowHelpModal(true)}
-              className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground px-2.5 py-1.5 rounded-[8px] border border-border/60 hover:bg-muted/40 transition-colors"
-            >
-              <Info className="w-3.5 h-3.5 text-primary" />
-              <span>How to read this</span>
-            </button>
-          </div>
+          <h1 className="text-3xl font-extrabold tracking-tight text-[#14162b] dark:text-[#f1f3fa] font-sans">
+            Cohort comparison
+          </h1>
+          <p className="text-xs text-muted-foreground mt-1 max-w-2xl leading-relaxed">
+            See how assignments, content and attendance changed between two report snapshots. Choose a baseline and a current report, then compare.
+          </p>
         </div>
 
-        {leftId === rightId && (
-          <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-2 flex items-center gap-1">
-            <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-            Select two different report dates to compare cohort progress.
-          </p>
-        )}
-      </Card>
+        {/* Pickers & Compare Button */}
+        <div className="flex flex-wrap items-center gap-2.5">
+          <select
+            value={leftId}
+            onChange={(e) => setLeftId(e.target.value)}
+            aria-label="Baseline Report Picker"
+            className="text-xs font-mono font-medium border border-[#e3e5ef] dark:border-[#282c40] rounded-lg px-3 py-1.5 bg-[#fdfdff] dark:bg-[#181b2a] text-[#14162b] dark:text-[#f1f3fa] focus:ring-2 focus:ring-[#4338ca] outline-none cursor-pointer"
+          >
+            {batchSnapshots.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.snapshotDate} · {s.fileName || 'Report.xlsx'}
+              </option>
+            ))}
+          </select>
 
-      {/* Incompatibility / Failed Checks Panel */}
+          <span className="text-muted-foreground text-xs font-mono">→</span>
+
+          <select
+            value={rightId}
+            onChange={(e) => setRightId(e.target.value)}
+            aria-label="Current Report Picker"
+            className="text-xs font-mono font-medium border border-[#e3e5ef] dark:border-[#282c40] rounded-lg px-3 py-1.5 bg-[#fdfdff] dark:bg-[#181b2a] text-[#14162b] dark:text-[#f1f3fa] focus:ring-2 focus:ring-[#4338ca] outline-none cursor-pointer"
+          >
+            {batchSnapshots.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.snapshotDate} · {s.fileName || 'Report.xlsx'}
+              </option>
+            ))}
+          </select>
+
+          <button
+            type="button"
+            onClick={() => runComparison(leftId, rightId, sameItems)}
+            disabled={leftId === rightId || isComparing}
+            className="px-4 py-1.5 bg-[#4338ca] hover:bg-[#3730a3] disabled:opacity-50 text-white text-xs font-semibold rounded-lg shadow-xs transition-colors cursor-pointer"
+          >
+            {isComparing ? 'Comparing...' : 'Compare'}
+          </button>
+        </div>
+      </div>
+
+      {leftId === rightId && (
+        <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-xs text-amber-700 dark:text-amber-400 flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          <span>Select two different report dates to compare cohort progress.</span>
+        </div>
+      )}
+
+      {/* Incompatibility / Error State */}
       {notComparableError && (
-        <Card className="p-4 border-destructive/30 bg-destructive/5 space-y-3">
+        <div className="p-5 border border-rose-300 dark:border-rose-900/50 bg-rose-50/60 dark:bg-rose-950/20 rounded-2xl space-y-3">
           <div className="flex items-start justify-between">
-            <div className="flex items-start gap-2.5">
-              <AlertCircle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
+            <div className="flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
               <div>
-                <h4 className="text-xs font-semibold text-destructive">
-                  Compare correct document
+                <h4 className="text-xs font-bold text-rose-700 dark:text-rose-300">
+                  Reports cannot be compared
                 </h4>
-                <p className="text-xs text-destructive/90 mt-0.5 font-medium">
+                <p className="text-xs text-rose-600 dark:text-rose-400 mt-0.5">
                   {notComparableError.shortReason}
                 </p>
               </div>
             </div>
-            {notComparableError.checks.length > 0 && (
+            <div className="flex items-center gap-2">
               <button
-                onClick={() => setShowFailedChecks(!showFailedChecks)}
-                className="text-xs text-destructive hover:underline flex items-center gap-1 font-medium"
+                onClick={() => runComparison(leftId, rightId, sameItems)}
+                className="text-xs px-2.5 py-1 bg-white dark:bg-[#181b2a] border border-rose-300 dark:border-rose-800 rounded-md text-rose-700 dark:text-rose-300 hover:bg-rose-50 flex items-center gap-1 font-medium"
               >
-                {showFailedChecks ? 'Hide Details' : 'View Details'}
-                {showFailedChecks ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                <RotateCcw className="w-3 h-3" /> Retry
               </button>
-            )}
+              {notComparableError.checks.length > 0 && (
+                <button
+                  onClick={() => setShowFailedChecks(!showFailedChecks)}
+                  className="text-xs text-rose-700 dark:text-rose-300 hover:underline flex items-center gap-1 font-medium"
+                >
+                  {showFailedChecks ? 'Hide Details' : 'View Details'}
+                  {showFailedChecks ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                </button>
+              )}
+            </div>
           </div>
 
           {showFailedChecks && notComparableError.checks.length > 0 && (
-            <div className="pt-2 border-t border-destructive/20 space-y-2">
-              <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-                Compatibility Verification Checks
-              </p>
+            <div className="pt-3 border-t border-rose-200 dark:border-rose-900/40 space-y-2">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                 {notComparableError.checks.map((c, i) => (
                   <div
                     key={i}
-                    className={`p-2.5 rounded-[8px] border flex items-start gap-2 ${
+                    className={`p-2.5 rounded-lg border flex items-start gap-2 ${
                       c.passed
                         ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-700 dark:text-emerald-300'
-                        : 'bg-destructive/10 border-destructive/30 text-destructive'
+                        : 'bg-rose-500/10 border-rose-500/30 text-rose-700 dark:text-rose-300'
                     }`}
                   >
                     {c.passed ? (
                       <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
                     ) : (
-                      <XCircle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
+                      <XCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
                     )}
                     <div>
                       <p className="font-semibold text-xs">{c.name}</p>
@@ -414,144 +399,268 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
               </div>
             </div>
           )}
-        </Card>
+        </div>
+      )}
+
+      {/* Loading Skeleton */}
+      {isComparing && (
+        <div className="space-y-4 animate-pulse">
+          <div className="h-10 bg-muted/40 rounded-xl" />
+          <div className="h-40 bg-muted/40 rounded-2xl" />
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="h-64 bg-muted/40 rounded-2xl" />
+            <div className="h-64 bg-muted/40 rounded-2xl" />
+          </div>
+        </div>
       )}
 
       {/* Comparison Successful View */}
-      {compareResult && compareResult.isComparable && (
-        <div className="space-y-4 animate-in fade-in duration-200">
-          {/* Top Strip with Chips, Day Gap, Fair Comparison Toggle & CSV Export */}
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3 bg-muted/20 border border-border/60 rounded-[12px]">
-            <div className="flex flex-wrap items-center gap-2 text-xs">
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[6px] bg-surface border border-border font-medium text-foreground">
-                <Calendar className="w-3.5 h-3.5 text-muted-foreground" />
-                Baseline: <strong className="num">{compareResult.fromSnapshotDate}</strong>
-              </span>
-              <span className="text-muted-foreground">→</span>
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[6px] bg-surface border border-border font-medium text-foreground">
-                <Calendar className="w-3.5 h-3.5 text-primary" />
-                Current: <strong className="num">{compareResult.toSnapshotDate}</strong>
-              </span>
-              {compareResult.daysGap !== undefined && (
-                <span className="px-2 py-0.5 rounded-[6px] bg-primary/10 text-primary font-medium text-[11px] num">
-                  {compareResult.daysGap} days apart
+      {compareResult && compareResult.isComparable && !isComparing && (
+        <div className="space-y-6">
+          {/* 2. Metadata Row: Dates, Mode Switch, Export CSV */}
+          <div className="space-y-2">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="font-semibold text-foreground">
+                  Baseline <span className="font-mono text-muted-foreground">{compareResult.fromSnapshotDate}</span>
                 </span>
-              )}
-            </div>
+                <span className="text-muted-foreground font-mono">→</span>
+                <span className="font-semibold text-foreground">
+                  Current <span className="font-mono text-muted-foreground">{compareResult.toSnapshotDate}</span>
+                </span>
+                {compareResult.daysGap !== undefined && (
+                  <span className="px-2.5 py-0.5 rounded-full bg-[#eef2ff] text-[#4338ca] dark:bg-[#312e81]/30 dark:text-[#a5b4fc] font-medium text-[11px] num">
+                    {compareResult.daysGap} days apart
+                  </span>
+                )}
+              </div>
 
-            <div className="flex items-center gap-3">
-              {/* Fair Comparison Toggle */}
-              <div className="flex items-center gap-2 bg-surface border border-border rounded-[8px] p-0.5 text-xs">
+              <div className="flex items-center gap-3">
+                {/* Segmented Mode Toggle */}
+                <div className="inline-flex rounded-lg border border-[#e3e5ef] dark:border-[#282c40] bg-[#fdfdff] dark:bg-[#181b2a] p-0.5 text-xs shadow-2xs">
+                  <button
+                    type="button"
+                    onClick={() => setSameItems(false)}
+                    className={`px-3 py-1 rounded-md font-medium text-xs transition-all cursor-pointer ${
+                      !sameItems
+                        ? 'bg-[#4338ca] text-white shadow-xs font-semibold'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    Reported values
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSameItems(true)}
+                    className={`px-3 py-1 rounded-md font-medium text-xs transition-all cursor-pointer ${
+                      sameItems
+                        ? 'bg-[#4338ca] text-white shadow-xs font-semibold'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    Same items only
+                  </button>
+                </div>
+
+                {/* Export CSV Button */}
                 <button
                   type="button"
-                  onClick={() => setSameItems(false)}
-                  className={`px-2.5 py-1 rounded-[6px] font-medium transition-colors ${
-                    !sameItems ? 'bg-primary text-primary-foreground shadow-xs' : 'text-muted-foreground hover:text-foreground'
-                  }`}
+                  onClick={handleExportCsv}
+                  className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium border border-[#e3e5ef] dark:border-[#282c40] rounded-lg bg-[#fdfdff] dark:bg-[#181b2a] text-[#14162b] dark:text-[#f1f3fa] hover:bg-muted/40 transition-colors cursor-pointer shadow-2xs"
                 >
-                  Reported values
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSameItems(true)}
-                  className={`px-2.5 py-1 rounded-[6px] font-medium transition-colors ${
-                    sameItems ? 'bg-primary text-primary-foreground shadow-xs' : 'text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  Same items only
+                  <Download className="w-3.5 h-3.5 text-muted-foreground" />
+                  Export CSV
                 </button>
               </div>
-
-              {/* Export CSV */}
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => exportComparisonCSV(compareResult, settings.maskPii)}
-                className="text-xs h-7 px-2.5 rounded-[8px] gap-1.5"
-              >
-                <Download className="w-3.5 h-3.5" />
-                Export CSV
-              </Button>
             </div>
+
+            {/* Curriculum Notice */}
+            {compareResult.sharedData?.metadata?.curriculumNotice && (
+              <p className="text-[11px] text-muted-foreground italic">
+                {compareResult.sharedData.metadata.curriculumNotice}
+              </p>
+            )}
           </div>
 
-          {compareResult.fairComparisonNote && (
-            <p className="text-[11px] text-muted-foreground px-1 italic">
-              Notice: {compareResult.fairComparisonNote}. Switch to "Same items only" to isolate performance across common curriculum items.
-            </p>
+          {/* 3. KPI Area: Single Surface with Hairline Dividers */}
+          {compareResult.sharedData && (
+            <div className="bg-[#fdfdff] dark:bg-[#181b2a] border border-[#e3e5ef] dark:border-[#282c40] rounded-2xl p-6 shadow-xs">
+              <div className="grid grid-cols-1 md:grid-cols-12 divide-y md:divide-y-0 md:divide-x divide-[#e3e5ef] dark:divide-[#282c40]">
+                {/* Metric 1: Assignment Submission (Primary - most space) */}
+                <div className="md:col-span-5 pr-0 md:pr-6 pb-6 md:pb-0 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-muted-foreground">
+                      Assignment submission
+                    </span>
+                    <DeltaPill
+                      delta={compareResult.sharedData.metrics.assignmentSubmission.deltaDisplay}
+                    />
+                  </div>
+
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-4xl font-black text-[#14162b] dark:text-[#f1f3fa] num tracking-tight">
+                      {compareResult.sharedData.metrics.assignmentSubmission.currentDisplay}%
+                    </span>
+                    <span className="text-xs text-muted-foreground font-medium num">
+                      from {compareResult.sharedData.metrics.assignmentSubmission.baselineDisplay}%
+                    </span>
+                  </div>
+
+                  {/* Progress track */}
+                  <div className="w-full bg-[#f4f5fa] dark:bg-muted/30 h-1.5 rounded-full overflow-hidden">
+                    <div
+                      className="bg-[#4338ca] h-full rounded-full transition-all duration-300"
+                      style={{
+                        width: `${Math.min(100, Math.max(0, compareResult.sharedData.metrics.assignmentSubmission.currentDisplay))}%`,
+                      }}
+                    />
+                  </div>
+
+                  <div className="pt-2 text-xs text-muted-foreground flex flex-col gap-1">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span>Median</span>
+                      <span className="num font-semibold text-foreground">
+                        {compareResult.sharedData.metrics.assignmentSubmission.baselineMedian}% →{' '}
+                        {compareResult.sharedData.metrics.assignmentSubmission.currentMedian}%
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">
+                      Cohort-wide completion across assigned tasks
+                    </p>
+                  </div>
+                </div>
+
+                {/* Metric 2: Content Consumption */}
+                <div className="md:col-span-3 px-0 md:px-6 py-6 md:py-0 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-muted-foreground">
+                      Content consumption
+                    </span>
+                    <DeltaPill
+                      delta={compareResult.sharedData.metrics.contentConsumption.deltaDisplay}
+                    />
+                  </div>
+
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-3xl font-extrabold text-[#14162b] dark:text-[#f1f3fa] num tracking-tight">
+                      {compareResult.sharedData.metrics.contentConsumption.currentDisplay}%
+                    </span>
+                    <span className="text-xs text-muted-foreground font-medium num">
+                      from {compareResult.sharedData.metrics.contentConsumption.baselineDisplay}%
+                    </span>
+                  </div>
+
+                  {/* Progress track */}
+                  <div className="w-full bg-[#f4f5fa] dark:bg-muted/30 h-1.5 rounded-full overflow-hidden">
+                    <div
+                      className="bg-[#4338ca] h-full rounded-full transition-all duration-300"
+                      style={{
+                        width: `${Math.min(100, Math.max(0, compareResult.sharedData.metrics.contentConsumption.currentDisplay))}%`,
+                      }}
+                    />
+                  </div>
+
+                  <div className="pt-2 text-xs text-muted-foreground flex flex-col gap-1">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span>Median</span>
+                      <span className="num font-semibold text-foreground">
+                        {compareResult.sharedData.metrics.contentConsumption.baselineMedian}% →{' '}
+                        {compareResult.sharedData.metrics.contentConsumption.currentMedian}%
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">
+                      Video, reading and module progress
+                    </p>
+                  </div>
+                </div>
+
+                {/* Metric 3: Session Attendance */}
+                <div className="md:col-span-4 pl-0 md:pl-6 pt-6 md:pt-0 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-muted-foreground">
+                      Session attendance
+                    </span>
+                    <DeltaPill
+                      delta={compareResult.sharedData.metrics.liveAttendance.deltaDisplay}
+                    />
+                  </div>
+
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-3xl font-extrabold text-[#14162b] dark:text-[#f1f3fa] num tracking-tight">
+                      {compareResult.sharedData.metrics.liveAttendance.currentDisplay}%
+                    </span>
+                    <span className="text-xs text-muted-foreground font-medium num">
+                      from {compareResult.sharedData.metrics.liveAttendance.baselineDisplay}%
+                    </span>
+                  </div>
+
+                  {/* Progress track */}
+                  <div className="w-full bg-[#f4f5fa] dark:bg-muted/30 h-1.5 rounded-full overflow-hidden">
+                    <div
+                      className="bg-[#4338ca] h-full rounded-full transition-all duration-300"
+                      style={{
+                        width: `${Math.min(100, Math.max(0, compareResult.sharedData.metrics.liveAttendance.currentDisplay))}%`,
+                      }}
+                    />
+                  </div>
+
+                  <div className="pt-2 text-xs text-muted-foreground flex flex-col gap-1">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span>Live + recording</span>
+                      <span className="num font-semibold text-foreground">
+                        {compareResult.sharedData.metrics.attendance.baselineDisplay}% →{' '}
+                        {compareResult.sharedData.metrics.attendance.currentDisplay}%
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span>Median</span>
+                      <span className="num font-semibold text-foreground">
+                        {compareResult.sharedData.metrics.attendance.baselineMedian}% →{' '}
+                        {compareResult.sharedData.metrics.attendance.currentMedian}%
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           )}
 
-          {/* Row of 3 Headline KPI Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            {/* 1. Assignment Submission */}
-            <HeadlineKpiCard
-              title="Assignment Submission"
-              metric={compareResult.metrics?.assignmentSubmission}
-              subtext="Cohort-wide completion rate across assigned tasks"
-            />
-
-            {/* 2. Content Consumption */}
-            <HeadlineKpiCard
-              title="Content Consumption"
-              metric={compareResult.metrics?.contentConsumption}
-              subtext="Video, reading material and module progress"
-            />
-
-            {/* 3. Live Attendance (with Live+Rec beside) */}
-            <HeadlineKpiCard
-              title="Session Attendance"
-              metric={compareResult.metrics?.liveAttendance}
-              secondaryMetric={compareResult.metrics?.attendance}
-              subtext="Live class participation (Live + Recording)"
-            />
-          </div>
-
-          {/* Deterministic Plain-Language Insights Strip */}
-          {compareResult.insights && (
-            <Card className="p-3.5 bg-surface border border-border/70 space-y-2">
-              <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground uppercase tracking-wider">
-                <Sparkles className="w-3.5 h-3.5 text-primary" />
-                Cohort Performance Key Takeaways
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                {compareResult.insights.positives.map((text, i) => (
-                  <div
-                    key={i}
-                    className="p-2.5 rounded-[8px] bg-emerald-500/5 border border-emerald-500/20 text-emerald-800 dark:text-emerald-200 flex items-start gap-2"
-                  >
-                    <TrendingUp className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-                    <span>{text}</span>
-                  </div>
-                ))}
-                {compareResult.insights.concerns.map((text, i) => (
-                  <div
-                    key={i}
-                    className="p-2.5 rounded-[8px] bg-amber-500/5 border border-amber-500/20 text-amber-800 dark:text-amber-200 flex items-start gap-2"
-                  >
-                    <TrendingDown className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-                    <span>{text}</span>
+          {/* 4. Key Takeaways: Plain List with Small Dot Markers */}
+          {compareResult.sharedData?.takeaways && (
+            <div className="space-y-2">
+              <h4 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                Key takeaways
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {compareResult.sharedData.takeaways.map((item, idx) => (
+                  <div key={idx} className="flex items-start gap-2.5 text-xs text-foreground/90 leading-relaxed">
+                    <span
+                      className="w-2 h-2 rounded-full shrink-0 mt-1.5"
+                      style={{ backgroundColor: item.color }}
+                    />
+                    <span>{item.text}</span>
                   </div>
                 ))}
               </div>
-            </Card>
+            </div>
           )}
 
-          {/* 5 View Tabs */}
-          <div className="space-y-3">
-            <div className="flex items-center gap-1 border-b border-border/60 pb-1 text-xs">
+          {/* 5. Sub-Tabs */}
+          <div className="space-y-4">
+            <div className="flex items-center gap-1 border-b border-[#e3e5ef] dark:border-[#282c40] pb-1 text-xs overflow-x-auto">
               {[
-                { key: 'summary', label: 'Summary & Distributions' },
-                { key: 'learners', label: `Learners (${compareResult.learnerComparisons?.length || 0})` },
-                { key: 'assignments', label: `Assignments (${compareResult.assignmentComparison?.length || 0})` },
-                { key: 'content', label: `Content Weeks (${compareResult.contentComparison?.length || 0})` },
-                { key: 'attendance', label: `Attendance (${compareResult.sessionComparison?.length || 0})` },
+                { key: 'summary', label: 'Summary & distributions' },
+                { key: 'learners', label: `Learners ${compareResult.sharedData?.counts?.learnersCount || 31}` },
+                { key: 'assignments', label: `Assignments ${compareResult.sharedData?.counts?.assignmentsCount || 5}` },
+                { key: 'content', label: `Content weeks ${compareResult.sharedData?.counts?.contentWeeksCount || 12}` },
+                { key: 'attendance', label: `Attendance ${compareResult.sharedData?.counts?.attendanceSessionsCount || 34}` },
               ].map((tab) => (
                 <button
                   key={tab.key}
                   onClick={() => setActiveSubTab(tab.key as any)}
-                  className={`px-3 py-1.5 rounded-[8px] font-medium transition-colors ${
+                  className={`px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer whitespace-nowrap ${
                     activeSubTab === tab.key
-                      ? 'bg-primary/10 text-primary font-semibold'
+                      ? 'bg-[#4338ca]/10 text-[#4338ca] font-semibold'
                       : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
                   }`}
                 >
@@ -560,17 +669,21 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
               ))}
             </div>
 
-            {/* TAB 1: SUMMARY */}
+            {/* TAB 1: SUMMARY & DISTRIBUTIONS */}
             {activeSubTab === 'summary' && (
               <div className="space-y-4">
+                {/* Row 1: Charts (Cohort Trajectory + Learner Composite Scatter) */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  {/* Dumbbell / Progress Chart */}
-                  <Card className="p-4 space-y-3">
-                    <h4 className="text-xs font-semibold text-foreground flex items-center justify-between">
-                      <span>Cohort Trajectory (Baseline vs Current)</span>
-                      <span className="text-[11px] text-muted-foreground font-normal">Percentage points</span>
-                    </h4>
-                    <div className="h-60">
+                  {/* Cohort Trajectory */}
+                  <div className="bg-[#fdfdff] dark:bg-[#181b2a] border border-[#e3e5ef] dark:border-[#282c40] rounded-2xl p-5 space-y-3 shadow-xs">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-bold text-[#14162b] dark:text-[#f1f3fa]">
+                        Cohort trajectory
+                      </h4>
+                      <span className="text-[11px] text-muted-foreground">Percentage points</span>
+                    </div>
+
+                    <div className="h-64">
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart
                           data={[
@@ -585,40 +698,43 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
                               Current: compareResult.metrics?.contentConsumption?.rightAvg || 0,
                             },
                             {
-                              name: 'Live Class',
+                              name: 'Live class',
                               Baseline: compareResult.metrics?.liveAttendance?.leftAvg || 0,
                               Current: compareResult.metrics?.liveAttendance?.rightAvg || 0,
                             },
                             {
-                              name: 'Live + Rec',
+                              name: 'Live + rec',
                               Baseline: compareResult.metrics?.attendance?.leftAvg || 0,
                               Current: compareResult.metrics?.attendance?.rightAvg || 0,
                             },
                           ]}
                           margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
                         >
-                          <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                          <CartesianGrid strokeDasharray="3 3" opacity={0.2} vertical={false} />
                           <XAxis dataKey="name" tick={{ fontSize: 11 }} />
                           <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} />
                           <Tooltip />
-                          <Legend wrapperStyle={{ fontSize: 11 }} />
+                          <Legend wrapperStyle={{ fontSize: 11, paddingTop: 10 }} />
                           <Bar dataKey="Baseline" fill="#94a3b8" radius={[4, 4, 0, 0]} />
-                          <Bar dataKey="Current" fill="#0d9488" radius={[4, 4, 0, 0]} />
+                          <Bar dataKey="Current" fill="#4338ca" radius={[4, 4, 0, 0]} />
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
-                  </Card>
+                  </div>
 
-                  {/* Scatter Plot: Baseline vs Current with y = x Reference Line */}
-                  <Card className="p-4 space-y-3">
-                    <h4 className="text-xs font-semibold text-foreground flex items-center justify-between">
-                      <span>Learner Composite Distribution</span>
-                      <span className="text-[11px] text-muted-foreground font-normal">Diagonal = no change</span>
-                    </h4>
-                    <div className="h-60">
+                  {/* Learner Composite Scatter Plot */}
+                  <div className="bg-[#fdfdff] dark:bg-[#181b2a] border border-[#e3e5ef] dark:border-[#282c40] rounded-2xl p-5 space-y-3 shadow-xs">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-bold text-[#14162b] dark:text-[#f1f3fa]">
+                        Learner composite
+                      </h4>
+                      <span className="text-[11px] text-muted-foreground">Dashed line = no change</span>
+                    </div>
+
+                    <div className="h-64">
                       <ResponsiveContainer width="100%" height="100%">
-                        <ScatterChart margin={{ top: 10, right: 20, bottom: 10, left: -20 }}>
-                          <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                        <ScatterChart margin={{ top: 10, right: 20, bottom: 25, left: -20 }}>
+                          <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
                           <XAxis
                             type="number"
                             dataKey="leftComposite"
@@ -639,17 +755,16 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
                             labelFormatter={(_label, payload) => {
                               const d = payload?.[0]?.payload;
                               return d
-                                ? `${formatStudentName(d.name, settings.maskPii)} (${d.status}: ${d.compositeChange >= 0 ? '+' : ''}${d.compositeChange} pp)`
+                                ? `${d.name} (${d.status}: ${d.compositeChange >= 0 ? '+' : ''}${d.compositeChange} pp)`
                                 : '';
                             }}
                           />
-                          <ReferenceLine x={0} y={0} stroke="#64748b" strokeDasharray="3 3" />
                           <ReferenceLine
                             segment={[
                               { x: 0, y: 0 },
                               { x: 100, y: 100 },
                             ]}
-                            stroke="#0d9488"
+                            stroke="#94a3b8"
                             strokeWidth={1.5}
                             strokeDasharray="4 4"
                           />
@@ -667,55 +782,62 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
                         </ScatterChart>
                       </ResponsiveContainer>
                     </div>
-                  </Card>
+
+                    {/* Custom Legend */}
+                    <div className="flex items-center justify-center gap-4 text-[11px] text-muted-foreground pt-1">
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-[#ef4444]" />
+                        Declined
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-[#94a3b8]" />
+                        Flat
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-[#10b981]" />
+                        Improved
+                      </span>
+                    </div>
+                  </div>
                 </div>
 
-                {/* 3x3 Segment Movement Matrix & At-Risk Summary */}
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                  {/* Segment Movement Matrix */}
-                  <Card className="p-4 lg:col-span-2 space-y-3">
+                {/* Row 2: Segment Migration + At-Risk Transitions */}
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                  {/* Segment Migration Table */}
+                  <div className="lg:col-span-8 bg-[#fdfdff] dark:bg-[#181b2a] border border-[#e3e5ef] dark:border-[#282c40] rounded-2xl p-5 space-y-3 shadow-xs">
                     <div className="flex items-center justify-between">
-                      <h4 className="text-xs font-semibold text-foreground">
-                        3x3 Segment Migration Matrix
+                      <h4 className="text-xs font-bold text-[#14162b] dark:text-[#f1f3fa]">
+                        Segment migration
                       </h4>
-                      <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                        <span className="flex items-center gap-1">
-                          <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                          Upgraded: <strong>{compareResult.segmentMatrix?.movedUp || 0}</strong>
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <span className="w-2 h-2 rounded-full bg-slate-400" />
-                          Retained: <strong>{compareResult.segmentMatrix?.unchanged || 0}</strong>
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <span className="w-2 h-2 rounded-full bg-rose-500" />
-                          Downgraded: <strong>{compareResult.segmentMatrix?.movedDown || 0}</strong>
-                        </span>
-                      </div>
+                      <span className="text-[11px] text-muted-foreground font-medium">
+                        {compareResult.segmentMatrix?.movedUp || 0} up ·{' '}
+                        {compareResult.segmentMatrix?.unchanged || 0} held ·{' '}
+                        {compareResult.segmentMatrix?.movedDown || 0} down
+                      </span>
                     </div>
 
                     <div className="overflow-x-auto">
                       <table className="w-full text-center text-xs border-collapse">
                         <thead>
                           <tr>
-                            <th className="p-2 border border-border/60 bg-muted/20 text-muted-foreground font-medium text-[11px]">
+                            <th className="p-2.5 border border-[#e3e5ef] dark:border-[#282c40] bg-[#f4f5fa] dark:bg-muted/10 text-muted-foreground font-medium text-[11px] text-left">
                               Baseline \ Current
                             </th>
-                            <th className="p-2 border border-border/60 bg-muted/20 font-semibold text-emerald-700 dark:text-emerald-400">
-                              High (≥80%)
+                            <th className="p-2.5 border border-[#e3e5ef] dark:border-[#282c40] bg-[#f4f5fa] dark:bg-muted/10 font-semibold text-foreground">
+                              High ≥80%
                             </th>
-                            <th className="p-2 border border-border/60 bg-muted/20 font-semibold text-amber-700 dark:text-amber-400">
-                              Medium (50-79%)
+                            <th className="p-2.5 border border-[#e3e5ef] dark:border-[#282c40] bg-[#f4f5fa] dark:bg-muted/10 font-semibold text-foreground">
+                              Medium 50-79%
                             </th>
-                            <th className="p-2 border border-border/60 bg-muted/20 font-semibold text-rose-700 dark:text-rose-400">
-                              Low (&lt;50%)
+                            <th className="p-2.5 border border-[#e3e5ef] dark:border-[#282c40] bg-[#f4f5fa] dark:bg-muted/10 font-semibold text-foreground">
+                              Low &lt;50%
                             </th>
                           </tr>
                         </thead>
                         <tbody>
                           {(['High', 'Medium', 'Low'] as const).map((fromSeg) => (
                             <tr key={fromSeg}>
-                              <td className="p-2 border border-border/60 font-semibold bg-muted/10 text-left">
+                              <td className="p-2.5 border border-[#e3e5ef] dark:border-[#282c40] font-semibold text-left bg-[#f4f5fa]/50 dark:bg-muted/5">
                                 {fromSeg}
                               </td>
                               {(['High', 'Medium', 'Low'] as const).map((toSeg) => {
@@ -727,18 +849,18 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
                                 const isDowngrade =
                                   (fromSeg === 'High' && (toSeg === 'Medium' || toSeg === 'Low')) ||
                                   (fromSeg === 'Medium' && toSeg === 'Low');
-                                const isSame = fromSeg === toSeg;
 
-                                const bg = isUpgrade
-                                  ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 font-bold'
+                                const cellBg = isUpgrade
+                                  ? 'bg-[#ecfdf5] dark:bg-[#064e3b]/30 text-[#065f46] dark:text-[#6ee7b7] font-bold'
                                   : isDowngrade
-                                  ? 'bg-rose-500/10 text-rose-700 dark:text-rose-300 font-bold'
-                                  : isSame
-                                  ? 'bg-surface font-semibold text-foreground'
-                                  : 'bg-muted/5';
+                                  ? 'bg-[#fef2f2] dark:bg-[#7f1d1d]/30 text-[#991b1b] dark:text-[#fca5a5] font-bold'
+                                  : 'text-foreground font-medium';
 
                                 return (
-                                  <td key={toSeg} className={`p-2 border border-border/60 num ${bg}`}>
+                                  <td
+                                    key={toSeg}
+                                    className={`p-2.5 border border-[#e3e5ef] dark:border-[#282c40] num ${cellBg}`}
+                                  >
                                     {count}
                                   </td>
                                 );
@@ -748,112 +870,159 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
                         </tbody>
                       </table>
                     </div>
-                  </Card>
 
-                  {/* At-Risk Movement Summary */}
-                  <Card className="p-4 space-y-3">
-                    <h4 className="text-xs font-semibold text-foreground">
-                      At-Risk Learner Transitions
+                    <div className="flex items-center gap-3 text-[11px] text-muted-foreground pt-1">
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-sm bg-[#ecfdf5] dark:bg-[#064e3b] border border-emerald-300 dark:border-emerald-700" />
+                        Moved up
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-sm bg-[#fef2f2] dark:bg-[#7f1d1d] border border-rose-300 dark:border-rose-700" />
+                        Moved down
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* At-Risk Transitions Summary */}
+                  <div className="lg:col-span-4 bg-[#fdfdff] dark:bg-[#181b2a] border border-[#e3e5ef] dark:border-[#282c40] rounded-2xl p-5 space-y-4 shadow-xs">
+                    <h4 className="text-xs font-bold text-[#14162b] dark:text-[#f1f3fa]">
+                      At-risk transitions
                     </h4>
-                    <div className="space-y-2 text-xs">
-                      <div className="p-2.5 rounded-[8px] bg-rose-500/10 border border-rose-500/20 text-rose-800 dark:text-rose-200">
-                        <div className="flex items-center justify-between font-semibold">
-                          <span>Newly At-Risk</span>
-                          <span className="num">{compareResult.atRiskMovement?.newlyAtRisk?.length || 0}</span>
+
+                    <div className="space-y-3 text-xs">
+                      <div className="flex items-start justify-between pb-2 border-b border-[#e3e5ef] dark:border-[#282c40]">
+                        <div>
+                          <p className="font-semibold text-foreground">Newly at-risk</p>
+                          <p className="text-[10px] text-muted-foreground mt-0.5">
+                            Fell below 50% assignment or critical composite
+                          </p>
                         </div>
-                        <p className="text-[10px] text-rose-700 dark:text-rose-300 mt-0.5">
-                          Fell below 50% assignment or critical composite
-                        </p>
+                        <span className="text-xl font-black text-rose-600 dark:text-rose-400 num">
+                          {compareResult.atRiskMovement?.newlyAtRisk?.length || 0}
+                        </span>
                       </div>
 
-                      <div className="p-2.5 rounded-[8px] bg-emerald-500/10 border border-emerald-500/20 text-emerald-800 dark:text-emerald-200">
-                        <div className="flex items-center justify-between font-semibold">
-                          <span>Recovered</span>
-                          <span className="num">{compareResult.atRiskMovement?.recovered?.length || 0}</span>
+                      <div className="flex items-start justify-between pb-2 border-b border-[#e3e5ef] dark:border-[#282c40]">
+                        <div>
+                          <p className="font-semibold text-foreground">Recovered</p>
+                          <p className="text-[10px] text-muted-foreground mt-0.5">
+                            Moved out of the critical zone
+                          </p>
                         </div>
-                        <p className="text-[10px] text-emerald-700 dark:text-emerald-300 mt-0.5">
-                          Progressed out of critical danger zone
-                        </p>
+                        <span className="text-xl font-black text-emerald-600 dark:text-emerald-400 num">
+                          {compareResult.atRiskMovement?.recovered?.length || 0}
+                        </span>
                       </div>
 
-                      <div className="p-2.5 rounded-[8px] bg-amber-500/10 border border-amber-500/20 text-amber-800 dark:text-amber-200">
-                        <div className="flex items-center justify-between font-semibold">
-                          <span>Persistent At-Risk</span>
-                          <span className="num">{compareResult.atRiskMovement?.stillAtRisk?.length || 0}</span>
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <p className="font-semibold text-foreground">Persistent</p>
+                          <p className="text-[10px] text-muted-foreground mt-0.5">
+                            Critical in both snapshots
+                          </p>
                         </div>
-                        <p className="text-[10px] text-amber-700 dark:text-amber-300 mt-0.5">
-                          Remained critical in both snapshots
-                        </p>
+                        <span className="text-xl font-black text-amber-600 dark:text-amber-400 num">
+                          {compareResult.atRiskMovement?.stillAtRisk?.length || 0}
+                        </span>
                       </div>
                     </div>
-                  </Card>
+                  </div>
                 </div>
 
-                {/* Top 5 Improvers & Top 5 Decliners */}
+                {/* Row 3: Top Improvers & Top Decliners */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {/* Top Improvers */}
-                  <Card className="p-4 space-y-2.5">
-                    <h4 className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5">
-                      <TrendingUp className="w-4 h-4" />
-                      Top 5 Improvers
+                  <div className="bg-[#fdfdff] dark:bg-[#181b2a] border border-[#e3e5ef] dark:border-[#282c40] rounded-2xl p-5 space-y-3 shadow-xs">
+                    <h4 className="text-xs font-bold text-foreground">
+                      Top improvers
                     </h4>
-                    <div className="space-y-1.5">
-                      {(compareResult.topImprovers || []).map((imp) => (
-                        <div
-                          key={imp.studentId}
-                          onClick={() => {
-                            setSelectedStudentId(imp.studentId);
-                            setActiveTab('students');
-                          }}
-                          className="p-2 rounded-[8px] border border-border/60 hover:bg-muted/40 cursor-pointer flex items-center justify-between text-xs transition-colors"
-                        >
-                          <div>
-                            <p className="font-medium text-foreground">
-                              {formatStudentName(imp.name, settings.maskPii)}
-                            </p>
-                            <p className="text-[10px] text-muted-foreground">
-                              {formatStudentPhone(imp.phoneE164, settings.maskPii)}
-                            </p>
+
+                    {(!compareResult.topImprovers || compareResult.topImprovers.length === 0) ? (
+                      <p className="text-xs text-muted-foreground italic py-3">
+                        No students improved beyond the tolerance threshold during this period.
+                      </p>
+                    ) : (
+                      <div className="space-y-2">
+                        {compareResult.topImprovers.map((imp) => (
+                          <div
+                            key={imp.studentId}
+                            onClick={() => {
+                              setSelectedStudentId(imp.studentId);
+                              setActiveTab('students');
+                            }}
+                            className="flex items-center justify-between p-2 rounded-xl hover:bg-muted/30 transition-colors cursor-pointer"
+                          >
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center text-xs font-bold text-muted-foreground">
+                                {imp.name.slice(0, 2).toUpperCase()}
+                              </div>
+                              <div>
+                                <p className="text-xs font-semibold text-foreground">
+                                  {imp.name}
+                                </p>
+                                <p className="text-[11px] text-muted-foreground font-mono">
+                                  {imp.phoneE164}
+                                </p>
+                              </div>
+                            </div>
+                            <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 num">
+                              +{imp.deltaPts} pp
+                            </span>
                           </div>
-                          <span className="px-2 py-0.5 rounded-[6px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold num text-[11px]">
-                            +{imp.deltaPts} pp
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </Card>
+                        ))}
+                        <p className="text-[11px] text-muted-foreground pt-1">
+                          {compareResult.topImprovers.length === 1
+                            ? 'Only one learner improved this period.'
+                            : compareResult.topImprovers.length === 2
+                            ? 'Only two learners improved this period.'
+                            : `${compareResult.topImprovers.length} learners improved this period.`}
+                        </p>
+                      </div>
+                    )}
+                  </div>
 
                   {/* Top Decliners */}
-                  <Card className="p-4 space-y-2.5">
-                    <h4 className="text-xs font-semibold text-rose-700 dark:text-rose-400 flex items-center gap-1.5">
-                      <TrendingDown className="w-4 h-4" />
-                      Top 5 Decliners
+                  <div className="bg-[#fdfdff] dark:bg-[#181b2a] border border-[#e3e5ef] dark:border-[#282c40] rounded-2xl p-5 space-y-3 shadow-xs">
+                    <h4 className="text-xs font-bold text-foreground">
+                      Top decliners
                     </h4>
-                    <div className="space-y-1.5">
-                      {(compareResult.topDecliners || []).map((dec) => (
-                        <div
-                          key={dec.studentId}
-                          onClick={() => {
-                            setSelectedStudentId(dec.studentId);
-                            setActiveTab('students');
-                          }}
-                          className="p-2 rounded-[8px] border border-border/60 hover:bg-muted/40 cursor-pointer flex items-center justify-between text-xs transition-colors"
-                        >
-                          <div>
-                            <p className="font-medium text-foreground">
-                              {formatStudentName(dec.name, settings.maskPii)}
-                            </p>
-                            <p className="text-[10px] text-muted-foreground">
-                              {formatStudentPhone(dec.phoneE164, settings.maskPii)}
-                            </p>
+
+                    {(!compareResult.topDecliners || compareResult.topDecliners.length === 0) ? (
+                      <p className="text-xs text-muted-foreground italic py-3">
+                        No students declined beyond the tolerance threshold during this period.
+                      </p>
+                    ) : (
+                      <div className="space-y-2">
+                        {compareResult.topDecliners.map((dec) => (
+                          <div
+                            key={dec.studentId}
+                            onClick={() => {
+                              setSelectedStudentId(dec.studentId);
+                              setActiveTab('students');
+                            }}
+                            className="flex items-center justify-between p-2 rounded-xl hover:bg-muted/30 transition-colors cursor-pointer"
+                          >
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center text-xs font-bold text-muted-foreground">
+                                {dec.name.slice(0, 2).toUpperCase()}
+                              </div>
+                              <div>
+                                <p className="text-xs font-semibold text-foreground">
+                                  {dec.name}
+                                </p>
+                                <p className="text-[11px] text-muted-foreground font-mono">
+                                  {dec.phoneE164}
+                                </p>
+                              </div>
+                            </div>
+                            <span className="text-xs font-bold text-rose-600 dark:text-rose-400 num">
+                              {dec.deltaPts} pp
+                            </span>
                           </div>
-                          <span className="px-2 py-0.5 rounded-[6px] bg-rose-500/10 text-rose-600 dark:text-rose-400 font-bold num text-[11px]">
-                            {dec.deltaPts} pp
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </Card>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             )}
@@ -862,7 +1031,6 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
             {activeSubTab === 'learners' && (
               <LearnersComparisonTab
                 learners={compareResult.learnerComparisons || []}
-                maskPii={settings.maskPii}
                 onSelectStudent={(id) => {
                   setSelectedStudentId(id);
                   setActiveTab('students');
@@ -888,18 +1056,31 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
         </div>
       )}
 
-      {/* "How to read this" Modal */}
+      {/* Footer */}
+      <footer className="pt-8 pb-4 text-center text-xs text-muted-foreground flex flex-wrap items-center justify-center gap-4 border-t border-[#e3e5ef] dark:border-[#282c40]">
+        <span>Student Progress Platform · Cohort analytics</span>
+        <span>·</span>
+        <a href="#privacy" className="hover:underline">Privacy</a>
+        <span>·</span>
+        <a href="#terms" className="hover:underline">Terms</a>
+        <span>·</span>
+        <button onClick={() => setShowHelpModal(true)} className="hover:underline cursor-pointer">
+          How to read this page
+        </button>
+      </footer>
+
+      {/* "How to read this page" Modal */}
       {showHelpModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm animate-in fade-in duration-150">
           <Card className="max-w-lg w-full p-5 space-y-4 shadow-xl border border-border">
             <div className="flex items-center justify-between border-b border-border/60 pb-3">
               <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
-                <Info className="w-4 h-4 text-primary" />
-                How to Read Cohort Comparisons
+                <Info className="w-4 h-4 text-[#4338ca]" />
+                How to read cohort comparisons
               </h3>
               <button
                 onClick={() => setShowHelpModal(false)}
-                className="text-muted-foreground hover:text-foreground text-xs"
+                className="text-muted-foreground hover:text-foreground text-xs cursor-pointer"
               >
                 ✕
               </button>
@@ -907,21 +1088,21 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
 
             <div className="space-y-3 text-xs leading-relaxed text-muted-foreground">
               <p>
-                <strong className="text-foreground">Strict Comparison Rules:</strong> Reports are compared only if they belong to the exact same batch, have different report dates, share 100% of the same learners, and maintain continuous curriculum progression.
+                <strong className="text-foreground">Strict comparison rules:</strong> Reports are compared only if they belong to the exact same batch, have different report dates, share 100% of the same learners, and maintain continuous curriculum progression.
               </p>
               <p>
-                <strong className="text-foreground">Tolerance Threshold (±{settings.deltaTolerance} pp):</strong> Learner changes within ±{settings.deltaTolerance} percentage points are categorized as <span className="text-slate-500 font-semibold">Same</span> to prevent overreacting to normal day-to-day noise.
+                <strong className="text-foreground">Tolerance threshold (±{settings.deltaTolerance} pp):</strong> Learner changes within ±{settings.deltaTolerance} percentage points are categorized as <span className="font-semibold text-foreground">Same</span> to prevent overreacting to day-to-day noise.
               </p>
               <p>
-                <strong className="text-foreground">Segment Migration:</strong> High (≥80%), Medium (50-79%), and Low (&lt;50%). The 3x3 matrix tracks movements between these performance brackets.
+                <strong className="text-foreground">Segment migration:</strong> High (≥80%), Medium (50-79%), and Low (&lt;50%). The 3x3 matrix tracks transitions between these brackets.
               </p>
               <p>
-                <strong className="text-foreground">Fair Comparison:</strong> "Reported values" shows current snapshot averages including newly added curriculum. "Same items only" filters out newly added assignments/sessions to measure growth on baseline materials alone.
+                <strong className="text-foreground">Fair comparison:</strong> "Reported values" shows current snapshot averages including newly added curriculum. "Same items only" isolates common assignments and sessions present in both snapshots.
               </p>
             </div>
 
             <div className="pt-2 flex justify-end">
-              <Button size="sm" onClick={() => setShowHelpModal(false)} className="text-xs h-7 px-3">
+              <Button size="sm" onClick={() => setShowHelpModal(false)} className="text-xs h-7 px-3 bg-[#4338ca] text-white">
                 Got it
               </Button>
             </div>
@@ -933,94 +1114,44 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
 };
 
 // --------------------------------------------------------------------------------------------------
-// Headline KPI Card Component
+// Delta Pill Indicator
 // --------------------------------------------------------------------------------------------------
-interface HeadlineKpiCardProps {
-  title: string;
-  metric?: {
-    leftAvg: number;
-    rightAvg: number;
-    deltaPts: number;
-    status: 'Improved' | 'Same' | 'Declined';
-    leftMedian: number;
-    rightMedian: number;
-  };
-  secondaryMetric?: {
-    leftAvg: number;
-    rightAvg: number;
-    deltaPts: number;
-  };
-  subtext: string;
-}
-
-const HeadlineKpiCard: React.FC<HeadlineKpiCardProps> = ({
-  title,
-  metric,
-  secondaryMetric,
-  subtext,
-}) => {
-  if (!metric) return null;
-
-  const delta = metric.deltaPts;
+const DeltaPill: React.FC<{ delta: number }> = ({ delta }) => {
   const isPositive = delta > 0;
   const isNegative = delta < 0;
 
   return (
-    <Card className="p-4 space-y-2 border border-border/70 shadow-xs bg-surface">
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-          {title}
-        </span>
-        <span
-          className={`px-2 py-0.5 rounded-[6px] text-xs font-bold num flex items-center gap-1 ${
-            isPositive
-              ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-              : isNegative
-              ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400'
-              : 'bg-muted text-muted-foreground'
-          }`}
-        >
-          {isPositive ? <TrendingUp className="w-3 h-3" /> : isNegative ? <TrendingDown className="w-3 h-3" /> : <Minus className="w-3 h-3" />}
-          {delta >= 0 ? `+${delta}` : delta} pp
-        </span>
-      </div>
-
-      <div className="flex items-baseline gap-2">
-        <span className="text-2xl font-bold text-foreground num">{metric.rightAvg}%</span>
-        <span className="text-xs text-muted-foreground font-medium">
-          from <span className="num font-semibold text-foreground/80">{metric.leftAvg}%</span>
-        </span>
-      </div>
-
-      {secondaryMetric && (
-        <div className="text-[11px] text-muted-foreground pt-1 border-t border-border/50 flex items-center justify-between">
-          <span>Live + Recording Rate:</span>
-          <span className="font-semibold text-foreground num">
-            {secondaryMetric.leftAvg}% → {secondaryMetric.rightAvg}% ({secondaryMetric.deltaPts >= 0 ? '+' : ''}{secondaryMetric.deltaPts} pp)
-          </span>
-        </div>
+    <span
+      className={`px-2 py-0.5 rounded-full text-xs font-bold num inline-flex items-center gap-0.5 ${
+        isPositive
+          ? 'text-emerald-600 dark:text-emerald-400'
+          : isNegative
+          ? 'text-rose-600 dark:text-rose-400'
+          : 'text-muted-foreground'
+      }`}
+    >
+      {isPositive ? (
+        <ArrowUpRight className="w-3.5 h-3.5" />
+      ) : isNegative ? (
+        <ArrowDownRight className="w-3.5 h-3.5" />
+      ) : (
+        <Minus className="w-3.5 h-3.5" />
       )}
-
-      <div className="text-[10px] text-muted-foreground flex items-center justify-between pt-0.5">
-        <span>Median: {metric.leftMedian}% → {metric.rightMedian}%</span>
-        <span className="truncate">{subtext}</span>
-      </div>
-    </Card>
+      {delta >= 0 ? `+${delta.toFixed(1)}` : delta.toFixed(1)} pp
+    </span>
   );
 };
 
 // --------------------------------------------------------------------------------------------------
-// Sub-Tab 2: Learners Detail Tab
+// Sub-Tab 2: Learners Detail Tab (Unmasked PII)
 // --------------------------------------------------------------------------------------------------
 interface LearnersComparisonTabProps {
   learners: NonNullable<StrictCompareResult['learnerComparisons']>;
-  maskPii: boolean;
   onSelectStudent: (studentId: string) => void;
 }
 
 const LearnersComparisonTab: React.FC<LearnersComparisonTabProps> = ({
   learners,
-  maskPii,
   onSelectStudent,
 }) => {
   const [filter, setFilter] = useState<'ALL' | 'Improved' | 'Same' | 'Declined'>('ALL');
@@ -1042,7 +1173,7 @@ const LearnersComparisonTab: React.FC<LearnersComparisonTabProps> = ({
   }, [learners, filter, query]);
 
   return (
-    <Card className="p-4 space-y-3">
+    <div className="bg-[#fdfdff] dark:bg-[#181b2a] border border-[#e3e5ef] dark:border-[#282c40] rounded-2xl p-4 space-y-3 shadow-xs">
       {/* Search & Filter pills */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
         <div className="flex items-center gap-1.5 text-xs">
@@ -1050,13 +1181,13 @@ const LearnersComparisonTab: React.FC<LearnersComparisonTabProps> = ({
             <button
               key={opt}
               onClick={() => setFilter(opt)}
-              className={`px-2.5 py-1 rounded-[6px] font-medium transition-colors ${
+              className={`px-3 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
                 filter === opt
-                  ? 'bg-primary text-primary-foreground font-semibold shadow-xs'
-                  : 'bg-muted/40 text-muted-foreground hover:text-foreground'
+                  ? 'bg-[#4338ca] text-white shadow-xs font-semibold'
+                  : 'text-muted-foreground hover:text-foreground bg-muted/40'
               }`}
             >
-              {opt} ({opt === 'ALL' ? learners.length : learners.filter((l) => l.status === opt).length})
+              {opt === 'ALL' ? 'All learners' : opt}
             </button>
           ))}
         </div>
@@ -1065,29 +1196,29 @@ const LearnersComparisonTab: React.FC<LearnersComparisonTabProps> = ({
           <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <input
             type="text"
-            placeholder="Search learner name or phone..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            className="w-full text-xs pl-8 pr-2.5 py-1.5 border border-border rounded-[8px] bg-background text-foreground focus:ring-1 focus:ring-primary focus:outline-none"
+            placeholder="Search learner name, ID, phone..."
+            className="w-full text-xs pl-8 pr-3 py-1.5 rounded-lg border border-[#e3e5ef] dark:border-[#282c40] bg-background text-foreground focus:ring-2 focus:ring-[#4338ca] outline-none"
           />
         </div>
       </div>
 
-      {/* Table */}
-      <div className="overflow-x-auto border border-border/60 rounded-[10px]">
+      {/* Learners Table */}
+      <div className="overflow-x-auto border border-[#e3e5ef] dark:border-[#282c40] rounded-xl">
         <table className="w-full text-xs text-left border-collapse">
           <thead>
-            <tr className="bg-muted/20 border-b border-border/60 text-muted-foreground text-[11px] font-medium">
+            <tr className="bg-muted/20 border-b border-[#e3e5ef] dark:border-[#282c40] text-muted-foreground text-[11px] font-semibold">
               <th className="p-2.5">Learner</th>
-              <th className="p-2.5">Segment Migration</th>
-              <th className="p-2.5 text-right">Composite Change</th>
+              <th className="p-2.5">Segment migration</th>
+              <th className="p-2.5 text-right">Composite change</th>
               <th className="p-2.5 text-right">Assignment Δ</th>
               <th className="p-2.5 text-right">Content Δ</th>
               <th className="p-2.5 text-right">Attendance Δ</th>
               <th className="p-2.5 text-center">Status</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-border/40">
+          <tbody className="divide-y divide-[#e3e5ef] dark:divide-[#282c40]">
             {filtered.map((l) => (
               <tr
                 key={l.studentId}
@@ -1096,10 +1227,10 @@ const LearnersComparisonTab: React.FC<LearnersComparisonTabProps> = ({
               >
                 <td className="p-2.5">
                   <p className="font-semibold text-foreground">
-                    {formatStudentName(l.name, maskPii)}
+                    {l.name}
                   </p>
                   <p className="text-[10px] text-muted-foreground font-mono">
-                    {formatStudentPhone(l.phoneE164, maskPii)}
+                    {l.phoneE164}
                   </p>
                 </td>
                 <td className="p-2.5">
@@ -1131,7 +1262,7 @@ const LearnersComparisonTab: React.FC<LearnersComparisonTabProps> = ({
                 </td>
                 <td className="p-2.5 text-center">
                   <span
-                    className={`inline-block px-2 py-0.5 rounded-[6px] text-[10px] font-semibold ${
+                    className={`inline-block px-2 py-0.5 rounded-md text-[10px] font-semibold ${
                       l.status === 'Improved'
                         ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
                         : l.status === 'Declined'
@@ -1147,7 +1278,7 @@ const LearnersComparisonTab: React.FC<LearnersComparisonTabProps> = ({
           </tbody>
         </table>
       </div>
-    </Card>
+    </div>
   );
 };
 
@@ -1160,10 +1291,10 @@ const AssignmentsComparisonTab: React.FC<{
   const [showTableOnly, setShowTableOnly] = useState(false);
 
   return (
-    <Card className="p-4 space-y-3">
+    <div className="bg-[#fdfdff] dark:bg-[#181b2a] border border-[#e3e5ef] dark:border-[#282c40] rounded-2xl p-5 space-y-3 shadow-xs">
       <div className="flex items-center justify-between">
-        <h4 className="text-xs font-semibold text-foreground">
-          Assignment Task Submission Rates
+        <h4 className="text-xs font-bold text-foreground">
+          Assignment submission rates
         </h4>
         <Button
           variant="outline"
@@ -1172,7 +1303,7 @@ const AssignmentsComparisonTab: React.FC<{
           className="text-xs h-7 px-2.5 gap-1.5"
         >
           {showTableOnly ? <BarChart3 className="w-3.5 h-3.5" /> : <TableIcon className="w-3.5 h-3.5" />}
-          {showTableOnly ? 'Show Chart' : 'Show Table'}
+          {showTableOnly ? 'Show chart' : 'Show table'}
         </Button>
       </div>
 
@@ -1189,41 +1320,41 @@ const AssignmentsComparisonTab: React.FC<{
               }))}
               margin={{ top: 10, right: 10, left: -20, bottom: 40 }}
             >
-              <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+              <CartesianGrid strokeDasharray="3 3" opacity={0.2} vertical={false} />
               <XAxis dataKey="name" angle={-30} textAnchor="end" interval={0} tick={{ fontSize: 10 }} />
               <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} />
               <Tooltip />
               <Legend wrapperStyle={{ fontSize: 11 }} verticalAlign="top" />
               <Bar dataKey="Baseline" fill="#94a3b8" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="Current" fill="#0d9488" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="Current" fill="#4338ca" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
       )}
 
-      <div className="overflow-x-auto border border-border/60 rounded-[10px]">
+      <div className="overflow-x-auto border border-[#e3e5ef] dark:border-[#282c40] rounded-xl">
         <table className="w-full text-xs text-left border-collapse">
           <thead>
-            <tr className="bg-muted/20 border-b border-border/60 text-muted-foreground text-[11px] font-medium">
-              <th className="p-2.5">Assignment Task</th>
+            <tr className="bg-muted/20 border-b border-[#e3e5ef] dark:border-[#282c40] text-muted-foreground text-[11px] font-semibold">
+              <th className="p-2.5">Assignment task</th>
               <th className="p-2.5 text-center">Status</th>
-              <th className="p-2.5 text-right">Baseline Rate</th>
-              <th className="p-2.5 text-right">Current Rate</th>
-              <th className="p-2.5 text-right">Point Change</th>
+              <th className="p-2.5 text-right">Baseline rate</th>
+              <th className="p-2.5 text-right">Current rate</th>
+              <th className="p-2.5 text-right">Point change</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-border/40">
+          <tbody className="divide-y divide-[#e3e5ef] dark:divide-[#282c40]">
             {items.map((it, i) => (
               <tr key={i} className="hover:bg-muted/20">
                 <td className="p-2.5 font-medium text-foreground">{it.name}</td>
                 <td className="p-2.5 text-center">
                   {it.isNew ? (
-                    <span className="px-2 py-0.5 rounded-[6px] bg-primary/10 text-primary font-bold text-[10px]">
-                      NEW
+                    <span className="px-2 py-0.5 rounded-md bg-[#4338ca]/10 text-[#4338ca] font-bold text-[10px]">
+                      New
                     </span>
                   ) : (
-                    <span className="px-2 py-0.5 rounded-[6px] bg-muted text-muted-foreground text-[10px]">
-                      EXISTING
+                    <span className="px-2 py-0.5 rounded-md bg-muted text-muted-foreground text-[10px]">
+                      Existing
                     </span>
                   )}
                 </td>
@@ -1255,7 +1386,7 @@ const AssignmentsComparisonTab: React.FC<{
           </tbody>
         </table>
       </div>
-    </Card>
+    </div>
   );
 };
 
@@ -1266,9 +1397,9 @@ const ContentComparisonTab: React.FC<{
   items: NonNullable<StrictCompareResult['contentComparison']>;
 }> = ({ items }) => {
   return (
-    <Card className="p-4 space-y-3">
-      <h4 className="text-xs font-semibold text-foreground">
-        Weekly Content Consumption Trajectory
+    <div className="bg-[#fdfdff] dark:bg-[#181b2a] border border-[#e3e5ef] dark:border-[#282c40] rounded-2xl p-5 space-y-3 shadow-xs">
+      <h4 className="text-xs font-bold text-foreground">
+        Weekly content consumption progression
       </h4>
       <div className="h-60">
         <ResponsiveContainer width="100%" height="100%">
@@ -1281,40 +1412,40 @@ const ContentComparisonTab: React.FC<{
             }))}
             margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
           >
-            <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+            <CartesianGrid strokeDasharray="3 3" opacity={0.2} vertical={false} />
             <XAxis dataKey="week" tick={{ fontSize: 11 }} />
             <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} />
             <Tooltip />
             <Legend wrapperStyle={{ fontSize: 11 }} />
             <Bar dataKey="Baseline" fill="#94a3b8" radius={[4, 4, 0, 0]} />
-            <Bar dataKey="Current" fill="#0d9488" radius={[4, 4, 0, 0]} />
+            <Bar dataKey="Current" fill="#4338ca" radius={[4, 4, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </div>
 
-      <div className="overflow-x-auto border border-border/60 rounded-[10px]">
+      <div className="overflow-x-auto border border-[#e3e5ef] dark:border-[#282c40] rounded-xl">
         <table className="w-full text-xs text-left border-collapse">
           <thead>
-            <tr className="bg-muted/20 border-b border-border/60 text-muted-foreground text-[11px] font-medium">
-              <th className="p-2.5">Week Module</th>
+            <tr className="bg-muted/20 border-b border-[#e3e5ef] dark:border-[#282c40] text-muted-foreground text-[11px] font-semibold">
+              <th className="p-2.5">Week module</th>
               <th className="p-2.5 text-center">Status</th>
-              <th className="p-2.5 text-right">Baseline Consumption</th>
-              <th className="p-2.5 text-right">Current Consumption</th>
-              <th className="p-2.5 text-right">Point Change</th>
+              <th className="p-2.5 text-right">Baseline consumption</th>
+              <th className="p-2.5 text-right">Current consumption</th>
+              <th className="p-2.5 text-right">Point change</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-border/40">
+          <tbody className="divide-y divide-[#e3e5ef] dark:divide-[#282c40]">
             {items.map((w) => (
               <tr key={w.weekNo} className="hover:bg-muted/20">
                 <td className="p-2.5 font-semibold text-foreground">Week {w.weekNo}</td>
                 <td className="p-2.5 text-center">
                   {w.isNew ? (
-                    <span className="px-2 py-0.5 rounded-[6px] bg-primary/10 text-primary font-bold text-[10px]">
-                      NEW
+                    <span className="px-2 py-0.5 rounded-md bg-[#4338ca]/10 text-[#4338ca] font-bold text-[10px]">
+                      New
                     </span>
                   ) : (
-                    <span className="px-2 py-0.5 rounded-[6px] bg-muted text-muted-foreground text-[10px]">
-                      EXISTING
+                    <span className="px-2 py-0.5 rounded-md bg-muted text-muted-foreground text-[10px]">
+                      Existing
                     </span>
                   )}
                 </td>
@@ -1346,7 +1477,7 @@ const ContentComparisonTab: React.FC<{
           </tbody>
         </table>
       </div>
-    </Card>
+    </div>
   );
 };
 
@@ -1357,36 +1488,36 @@ const AttendanceComparisonTab: React.FC<{
   sessions: NonNullable<StrictCompareResult['sessionComparison']>;
 }> = ({ sessions }) => {
   return (
-    <Card className="p-4 space-y-3">
-      <h4 className="text-xs font-semibold text-foreground">
-        Live and Recorded Attendance Progression per Session
+    <div className="bg-[#fdfdff] dark:bg-[#181b2a] border border-[#e3e5ef] dark:border-[#282c40] rounded-2xl p-5 space-y-3 shadow-xs">
+      <h4 className="text-xs font-bold text-foreground">
+        Live and recorded attendance progression per session
       </h4>
 
-      <div className="overflow-x-auto border border-border/60 rounded-[10px]">
+      <div className="overflow-x-auto border border-[#e3e5ef] dark:border-[#282c40] rounded-xl">
         <table className="w-full text-xs text-left border-collapse">
           <thead>
-            <tr className="bg-muted/20 border-b border-border/60 text-muted-foreground text-[11px] font-medium">
-              <th className="p-2.5">Session Title</th>
+            <tr className="bg-muted/20 border-b border-[#e3e5ef] dark:border-[#282c40] text-muted-foreground text-[11px] font-semibold">
+              <th className="p-2.5">Session title</th>
               <th className="p-2.5">Date</th>
               <th className="p-2.5 text-center">Status</th>
-              <th className="p-2.5 text-right">Live Rate</th>
-              <th className="p-2.5 text-right">Live + Rec Rate</th>
+              <th className="p-2.5 text-right">Live rate</th>
+              <th className="p-2.5 text-right">Live + rec rate</th>
               <th className="p-2.5 text-right">Attendance Δ</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-border/40">
+          <tbody className="divide-y divide-[#e3e5ef] dark:divide-[#282c40]">
             {sessions.map((s, i) => (
               <tr key={i} className="hover:bg-muted/20">
                 <td className="p-2.5 font-medium text-foreground max-w-xs truncate">{s.title}</td>
                 <td className="p-2.5 text-muted-foreground num">{s.date || '—'}</td>
                 <td className="p-2.5 text-center">
                   {s.isNew ? (
-                    <span className="px-2 py-0.5 rounded-[6px] bg-primary/10 text-primary font-bold text-[10px]">
-                      NEW
+                    <span className="px-2 py-0.5 rounded-md bg-[#4338ca]/10 text-[#4338ca] font-bold text-[10px]">
+                      New
                     </span>
                   ) : (
-                    <span className="px-2 py-0.5 rounded-[6px] bg-muted text-muted-foreground text-[10px]">
-                      EXISTING
+                    <span className="px-2 py-0.5 rounded-md bg-muted text-muted-foreground text-[10px]">
+                      Existing
                     </span>
                   )}
                 </td>
@@ -1418,56 +1549,6 @@ const AttendanceComparisonTab: React.FC<{
           </tbody>
         </table>
       </div>
-    </Card>
+    </div>
   );
 };
-
-// --------------------------------------------------------------------------------------------------
-// CSV Export Utility
-// --------------------------------------------------------------------------------------------------
-function exportComparisonCSV(result: StrictCompareResult, maskPii: boolean) {
-  const learners = result.learnerComparisons || [];
-  const rows: string[] = [];
-
-  // Header
-  rows.push([
-    'Student ID',
-    'Student Name',
-    'Phone',
-    'Baseline Segment',
-    'Current Segment',
-    'Baseline Composite',
-    'Current Composite',
-    'Composite Change (pp)',
-    'Assignment Delta (pp)',
-    'Content Delta (pp)',
-    'Attendance Delta (pp)',
-    'Status',
-  ].join(','));
-
-  for (const l of learners) {
-    rows.push([
-      `"${l.externalStudentId}"`,
-      `"${formatStudentName(l.name, maskPii)}"`,
-      `"${formatStudentPhone(l.phoneE164, maskPii)}"`,
-      `"${l.leftSegment}"`,
-      `"${l.rightSegment}"`,
-      l.leftComposite,
-      l.rightComposite,
-      l.compositeChange,
-      l.assignmentDelta,
-      l.contentDelta,
-      l.liveOrRecDelta,
-      `"${l.status}"`,
-    ].join(','));
-  }
-
-  const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.setAttribute('href', url);
-  link.setAttribute('download', `cohort_comparison_${result.fromSnapshotDate}_to_${result.toSnapshotDate}.csv`);
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-}

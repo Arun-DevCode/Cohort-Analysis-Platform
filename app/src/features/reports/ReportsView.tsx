@@ -5,8 +5,9 @@ import { DeltaBadge, SegmentBadge } from '@/ui/Badge';
 import { usePlatformStore } from '@/store/usePlatformStore';
 import { formatStudentName, formatStudentPhone } from '@/core/identity/mask';
 import { computeSnapshotAggregate, computeBatchScorecards, identifyAtRiskStudents } from '@/core/analytics';
+import { generateReportPdf } from '@/core/analytics/sharedMetrics';
 import type { Snapshot, StudentSnapshot, Student, Batch } from '@/types';
-import { FileDown, FileSpreadsheet, CheckCircle2 } from 'lucide-react';
+import { FileDown, FileSpreadsheet, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 
 interface ReportsViewProps {
   currentBatch: Batch;
@@ -29,6 +30,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [isExportingExcel, setIsExportingExcel] = useState(false);
   const [exportSuccessMsg, setExportSuccessMsg] = useState<string | null>(null);
+  const [pdfError, setPdfError] = useState<string | null>(null);
 
   const reportCardRef = useRef<HTMLDivElement>(null);
   const studentMap = new Map<string, Student>(students.map((s) => [s.id, s]));
@@ -51,50 +53,42 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
   const atRiskList = identifyAtRiskStudents(currentStudentSnapshots, studentMap);
 
   const handleExportPdf = async () => {
-    if (!reportCardRef.current) return;
     setIsExportingPdf(true);
     setExportSuccessMsg(null);
+    setPdfError(null);
 
     try {
-      const [{ default: html2canvas }, { default: jsPDF }] = await Promise.all([
-        import('html2canvas'),
-        import('jspdf'),
-      ]);
-
-      const element = reportCardRef.current;
-      const canvas = await html2canvas(element, {
-        scale: 2,
-        useCORS: true,
-        logging: false,
+      const pdf = generateReportPdf({
+        batchName: currentBatch.name,
+        snapshotDate: currentSnapshot.snapshotDate,
+        previousSnapshotDate: previousSnapshot?.snapshotDate,
+        studentCount: currentAgg.studentCount,
+        scorecards,
+        segmentation: {
+          highCount: currentAgg.highCount,
+          mediumCount: currentAgg.mediumCount,
+          lowCount: currentAgg.lowCount,
+        },
+        atRiskStudents: atRiskList.map((s) => ({
+          studentName: s.studentName,
+          segment: s.segment,
+          reasons: s.reasons,
+          totalConsumptionPct: s.totalConsumptionPct,
+          assignmentSubmissionPct: s.assignmentSubmissionPct,
+        })),
+        takeaways: [
+          `Assignment submission is at ${scorecards.assignment.currentValue}%${scorecards.assignment.deltaPts !== null ? ` (${scorecards.assignment.deltaPts >= 0 ? '+' : ''}${scorecards.assignment.deltaPts} pp)` : ''}.`,
+          `Content consumption is at ${scorecards.consumption.currentValue}% with ${currentAgg.highCount} students in the High segment.`,
+          `${atRiskList.length} students currently require targeted academic or attendance intervention.`,
+        ],
       });
 
-      const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF({
-        orientation: 'portrait',
-        unit: 'mm',
-        format: 'a4',
-      });
-
-      const imgWidth = 210; // A4 width mm
-      const pageHeight = 295; // A4 height mm
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-      let heightLeft = imgHeight;
-      let position = 0;
-
-      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-      heightLeft -= pageHeight;
-
-      while (heightLeft >= 0) {
-        position = heightLeft - imgHeight;
-        pdf.addPage();
-        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-        heightLeft -= pageHeight;
-      }
-
-      pdf.save(`Manager_Report_${currentBatch.name.replace(/\s+/g, '_')}_${currentSnapshot.snapshotDate}.pdf`);
+      const cleanBatch = currentBatch.name.replace(/[^a-zA-Z0-9_\-]/g, '_');
+      pdf.save(`Manager_Report_${cleanBatch}_${currentSnapshot.snapshotDate}.pdf`);
       setExportSuccessMsg('Manager PDF report exported successfully!');
-    } catch (err) {
+    } catch (err: any) {
       console.error('PDF export error:', err);
+      setPdfError(err?.message || 'Failed to render PDF. Please click Retry.');
     } finally {
       setIsExportingPdf(false);
     }
@@ -201,11 +195,37 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
               onClick={handleExportPdf}
               className="gap-1.5"
             >
-              <FileDown className="w-4 h-4" />
-              {isExportingPdf ? 'Rendering PDF...' : 'Download One-Page PDF'}
+              {isExportingPdf ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Generating PDF...
+                </>
+              ) : (
+                <>
+                  <FileDown className="w-4 h-4" />
+                  Download One-Page PDF
+                </>
+              )}
             </Button>
           </div>
         </div>
+
+        {pdfError && (
+          <div className="mt-4 p-3 bg-rose-50 text-rose-800 rounded-lg text-xs flex items-center justify-between border border-rose-200">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+              <span>{pdfError}</span>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleExportPdf}
+              className="h-7 text-xs bg-white text-rose-800 border-rose-300 hover:bg-rose-100"
+            >
+              Retry
+            </Button>
+          </div>
+        )}
 
         {exportSuccessMsg && (
           <div className="mt-4 p-3 bg-emerald-50 text-emerald-800 rounded-lg text-xs flex items-center gap-2 border border-emerald-200">
