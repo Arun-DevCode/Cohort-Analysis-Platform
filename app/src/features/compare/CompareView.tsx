@@ -1,17 +1,21 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { Card } from '@/ui/Card';
-import { Button } from '@/ui/Button';
-import { usePlatformStore, type ActiveTab } from '@/store/usePlatformStore';
+import React, { useState, useMemo, useEffect } from "react";
+import { Card } from "@/ui/Card";
+import { Button } from "@/ui/Button";
+import { usePlatformStore, type ActiveTab } from "@/store/usePlatformStore";
 import {
   compareSnapshotsLocal,
   type StrictCompareResult,
   type CompatibilityCheckItem,
-} from '@/core/analytics/clientStrictCompare';
-import {
-  downloadComparisonCsv,
-} from '@/core/analytics/sharedMetrics';
-import { apiClient } from '@/core/api/client';
-import type { Snapshot, StudentSnapshot, Student, AssignmentResult, Session } from '@/types';
+} from "@/core/analytics/clientStrictCompare";
+import { downloadComparisonCsv } from "@/core/analytics/sharedMetrics";
+import { apiClient } from "@/core/api/client";
+import type {
+  Snapshot,
+  StudentSnapshot,
+  Student,
+  AssignmentResult,
+  Session,
+} from "@/types";
 import {
   GitCompare,
   UploadCloud,
@@ -31,7 +35,7 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   RotateCcw,
-} from 'lucide-react';
+} from "lucide-react";
 import {
   ResponsiveContainer,
   BarChart,
@@ -45,7 +49,7 @@ import {
   Scatter,
   ReferenceLine,
   Cell,
-} from 'recharts';
+} from "recharts";
 
 interface CompareViewProps {
   snapshots: Snapshot[];
@@ -90,7 +94,8 @@ export const CompareView: React.FC<CompareViewProps> = ({
             No reports yet for this course
           </h3>
           <p className="text-xs text-muted-foreground leading-relaxed">
-            Upload a cumulative report to begin tracking cohort progress and enable strict comparative analytics.
+            Upload a cumulative report to begin tracking cohort progress and
+            enable strict comparative analytics.
           </p>
         </div>
         <Button
@@ -116,7 +121,9 @@ export const CompareView: React.FC<CompareViewProps> = ({
             Upload another report of this batch to compare
           </h3>
           <p className="text-xs text-muted-foreground leading-relaxed">
-            Strict comparison requires at least two snapshots of different dates in the same batch to measure cohort trajectory and learner progression.
+            Strict comparison requires at least two snapshots of different dates
+            in the same batch to measure cohort trajectory and learner
+            progression.
           </p>
         </div>
         <Button
@@ -154,7 +161,9 @@ interface StrictCompareContainerProps {
   settings: { deltaTolerance: number };
   backendConnected: boolean;
   comparePreselected: { leftId: string; rightId: string } | null;
-  setComparePreselected: (val: { leftId: string; rightId: string } | null) => void;
+  setComparePreselected: (
+    val: { leftId: string; rightId: string } | null,
+  ) => void;
   setSelectedStudentId: (id: string | null) => void;
   setActiveTab: (tab: ActiveTab) => void;
 }
@@ -170,14 +179,20 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
   setActiveTab,
 }) => {
   const [leftId, setLeftId] = useState<string>(() => {
-    if (comparePreselected?.leftId && batchSnapshots.some((s) => s.id === comparePreselected.leftId)) {
+    if (
+      comparePreselected?.leftId &&
+      batchSnapshots.some((s) => s.id === comparePreselected.leftId)
+    ) {
       return comparePreselected.leftId;
     }
     return batchSnapshots[0].id;
   });
 
   const [rightId, setRightId] = useState<string>(() => {
-    if (comparePreselected?.rightId && batchSnapshots.some((s) => s.id === comparePreselected.rightId)) {
+    if (
+      comparePreselected?.rightId &&
+      batchSnapshots.some((s) => s.id === comparePreselected.rightId)
+    ) {
       return comparePreselected.rightId;
     }
     return batchSnapshots[batchSnapshots.length - 1].id;
@@ -185,14 +200,17 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
 
   const [sameItems, setSameItems] = useState(false);
   const [isComparing, setIsComparing] = useState(false);
-  const [compareResult, setCompareResult] = useState<StrictCompareResult | null>(null);
+  const [compareResult, setCompareResult] =
+    useState<StrictCompareResult | null>(null);
   const [notComparableError, setNotComparableError] = useState<{
     shortReason: string;
     checks: CompatibilityCheckItem[];
   } | null>(null);
   const [showFailedChecks, setShowFailedChecks] = useState(true);
   const [showHelpModal, setShowHelpModal] = useState(false);
-  const [activeSubTab, setActiveSubTab] = useState<'summary' | 'learners' | 'assignments' | 'content' | 'attendance'>('summary');
+  const [activeSubTab, setActiveSubTab] = useState<
+    "summary" | "learners" | "assignments" | "content" | "attendance"
+  >("summary");
 
   // Clear preselected once initialized
   useEffect(() => {
@@ -202,7 +220,11 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
   }, [comparePreselected, setComparePreselected]);
 
   // Execute comparison
-  const runComparison = async (idA: string, idB: string, sameItemsOnly: boolean) => {
+  const runComparison = async (
+    idA: string,
+    idB: string,
+    sameItemsOnly: boolean,
+  ) => {
     if (!idA || !idB || idA === idB) return;
     setIsComparing(true);
     setNotComparableError(null);
@@ -217,10 +239,12 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
             tolerance: settings.deltaTolerance,
           });
         } catch (apiErr: any) {
-          if (apiErr?.code === 'NOT_COMPARABLE' || apiErr?.status === 422) {
+          if (apiErr?.code === "NOT_COMPARABLE" || apiErr?.status === 422) {
             setCompareResult(null);
             setNotComparableError({
-              shortReason: apiErr.shortReason || 'Reports do not meet compatibility criteria',
+              shortReason:
+                apiErr.shortReason ||
+                "Reports do not meet compatibility criteria",
               checks: apiErr.checks || [],
             });
             return;
@@ -240,7 +264,7 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
       if (!res.isComparable) {
         setCompareResult(null);
         setNotComparableError({
-          shortReason: res.shortReason || 'Reports are incompatible',
+          shortReason: res.shortReason || "Reports are incompatible",
           checks: res.checks || [],
         });
       } else {
@@ -250,7 +274,7 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
     } catch (err: any) {
       setCompareResult(null);
       setNotComparableError({
-        shortReason: err.message || 'Comparison failed',
+        shortReason: err.message || "Comparison failed",
         checks: [],
       });
     } finally {
@@ -266,8 +290,10 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
 
   // Extract batch display code (e.g. "AFSD · Code B49")
   const currentBatchObj = batchSnapshots[0];
-  const batchNameStr = currentBatchObj?.batchId ? currentBatchObj.batchId : 'AFSD';
-  const detectedCode = 'B49';
+  const batchNameStr = currentBatchObj?.batchId
+    ? currentBatchObj.batchId
+    : "Unknown";
+  const detectedCode = "Uknown";
 
   const handleExportCsv = () => {
     if (compareResult?.sharedData) {
@@ -278,7 +304,7 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
   return (
     <div className="space-y-6 text-[#14162b] dark:text-[#f1f3fa]">
       {/* 1. Page Header & Pickers Controls */}
-      <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
           <div className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">
             Batch {batchNameStr} · Code {detectedCode}
@@ -287,36 +313,40 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
             Cohort comparison
           </h1>
           <p className="text-xs text-muted-foreground mt-1 max-w-2xl leading-relaxed">
-            See how assignments, content and attendance changed between two report snapshots. Choose a baseline and a current report, then compare.
+            See how assignments, content and attendance changed between two
+            report snapshots. Choose a baseline and a current report, then
+            compare.
           </p>
         </div>
 
         {/* Pickers & Compare Button */}
-        <div className="flex flex-wrap items-center gap-2.5">
+        <div className="flex flex-wrap sm:flex-nowrap items-center gap-2.5">
           <select
             value={leftId}
             onChange={(e) => setLeftId(e.target.value)}
             aria-label="Baseline Report Picker"
-            className="text-xs font-mono font-medium border border-[#e3e5ef] dark:border-[#282c40] rounded-lg px-3 py-1.5 bg-[#fdfdff] dark:bg-[#181b2a] text-[#14162b] dark:text-[#f1f3fa] focus:ring-2 focus:ring-[#4338ca] outline-none cursor-pointer"
+            className="text-xs font-mono font-medium border border-[#e3e5ef] dark:border-[#282c40] rounded-lg px-3 py-2 bg-[#fdfdff] dark:bg-[#181b2a] text-[#14162b] dark:text-[#f1f3fa] focus:ring-2 focus:ring-[#4338ca] outline-none cursor-pointer"
           >
             {batchSnapshots.map((s) => (
               <option key={s.id} value={s.id}>
-                {s.snapshotDate} · {s.fileName || 'Report.xlsx'}
+                {s.snapshotDate} · {s.fileName || "Report.xlsx"}
               </option>
             ))}
           </select>
 
-          <span className="text-muted-foreground text-xs font-mono">→</span>
+          <span className="text-muted-foreground text-xs font-mono select-none">
+            →
+          </span>
 
           <select
             value={rightId}
             onChange={(e) => setRightId(e.target.value)}
             aria-label="Current Report Picker"
-            className="text-xs font-mono font-medium border border-[#e3e5ef] dark:border-[#282c40] rounded-lg px-3 py-1.5 bg-[#fdfdff] dark:bg-[#181b2a] text-[#14162b] dark:text-[#f1f3fa] focus:ring-2 focus:ring-[#4338ca] outline-none cursor-pointer"
+            className="text-xs font-mono font-medium border border-[#e3e5ef] dark:border-[#282c40] rounded-lg px-3 py-2 bg-[#fdfdff] dark:bg-[#181b2a] text-[#14162b] dark:text-[#f1f3fa] focus:ring-2 focus:ring-[#4338ca] outline-none cursor-pointer"
           >
             {batchSnapshots.map((s) => (
               <option key={s.id} value={s.id}>
-                {s.snapshotDate} · {s.fileName || 'Report.xlsx'}
+                {s.snapshotDate} · {s.fileName || "Report.xlsx"}
               </option>
             ))}
           </select>
@@ -325,9 +355,9 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
             type="button"
             onClick={() => runComparison(leftId, rightId, sameItems)}
             disabled={leftId === rightId || isComparing}
-            className="px-4 py-1.5 bg-[#4338ca] hover:bg-[#3730a3] disabled:opacity-50 text-white text-xs font-semibold rounded-lg shadow-xs transition-colors cursor-pointer"
+            className="px-4 py-2 bg-[#4338ca] hover:bg-[#3730a3] disabled:opacity-50 text-white text-xs font-semibold rounded-lg shadow-xs transition-colors cursor-pointer shrink-0 whitespace-nowrap"
           >
-            {isComparing ? 'Comparing...' : 'Compare'}
+            {isComparing ? "Comparing..." : "Compare"}
           </button>
         </div>
       </div>
@@ -335,7 +365,9 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
       {leftId === rightId && (
         <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-xs text-amber-700 dark:text-amber-400 flex items-center gap-2">
           <AlertTriangle className="w-4 h-4 shrink-0" />
-          <span>Select two different report dates to compare cohort progress.</span>
+          <span>
+            Select two different report dates to compare cohort progress.
+          </span>
         </div>
       )}
 
@@ -366,8 +398,12 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
                   onClick={() => setShowFailedChecks(!showFailedChecks)}
                   className="text-xs text-rose-700 dark:text-rose-300 hover:underline flex items-center gap-1 font-medium"
                 >
-                  {showFailedChecks ? 'Hide Details' : 'View Details'}
-                  {showFailedChecks ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                  {showFailedChecks ? "Hide Details" : "View Details"}
+                  {showFailedChecks ? (
+                    <ChevronUp className="w-3.5 h-3.5" />
+                  ) : (
+                    <ChevronDown className="w-3.5 h-3.5" />
+                  )}
                 </button>
               )}
             </div>
@@ -381,8 +417,8 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
                     key={i}
                     className={`p-2.5 rounded-lg border flex items-start gap-2 ${
                       c.passed
-                        ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-700 dark:text-emerald-300'
-                        : 'bg-rose-500/10 border-rose-500/30 text-rose-700 dark:text-rose-300'
+                        ? "bg-emerald-500/5 border-emerald-500/20 text-emerald-700 dark:text-emerald-300"
+                        : "bg-rose-500/10 border-rose-500/30 text-rose-700 dark:text-rose-300"
                     }`}
                   >
                     {c.passed ? (
@@ -392,7 +428,9 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
                     )}
                     <div>
                       <p className="font-semibold text-xs">{c.name}</p>
-                      <p className="text-[11px] opacity-90 mt-0.5">{c.detail}</p>
+                      <p className="text-[11px] opacity-90 mt-0.5">
+                        {c.detail}
+                      </p>
                     </div>
                   </div>
                 ))}
@@ -422,11 +460,17 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
               <div className="flex flex-wrap items-center gap-2 text-xs">
                 <span className="font-semibold text-foreground">
-                  Baseline <span className="font-mono text-muted-foreground">{compareResult.fromSnapshotDate}</span>
+                  Baseline{" "}
+                  <span className="font-mono text-muted-foreground">
+                    {compareResult.fromSnapshotDate}
+                  </span>
                 </span>
                 <span className="text-muted-foreground font-mono">→</span>
                 <span className="font-semibold text-foreground">
-                  Current <span className="font-mono text-muted-foreground">{compareResult.toSnapshotDate}</span>
+                  Current{" "}
+                  <span className="font-mono text-muted-foreground">
+                    {compareResult.toSnapshotDate}
+                  </span>
                 </span>
                 {compareResult.daysGap !== undefined && (
                   <span className="px-2.5 py-0.5 rounded-full bg-[#eef2ff] text-[#4338ca] dark:bg-[#312e81]/30 dark:text-[#a5b4fc] font-medium text-[11px] num">
@@ -443,8 +487,8 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
                     onClick={() => setSameItems(false)}
                     className={`px-3 py-1 rounded-md font-medium text-xs transition-all cursor-pointer ${
                       !sameItems
-                        ? 'bg-[#4338ca] text-white shadow-xs font-semibold'
-                        : 'text-muted-foreground hover:text-foreground'
+                        ? "bg-[#4338ca] text-white shadow-xs font-semibold"
+                        : "text-muted-foreground hover:text-foreground"
                     }`}
                   >
                     Reported values
@@ -454,8 +498,8 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
                     onClick={() => setSameItems(true)}
                     className={`px-3 py-1 rounded-md font-medium text-xs transition-all cursor-pointer ${
                       sameItems
-                        ? 'bg-[#4338ca] text-white shadow-xs font-semibold'
-                        : 'text-muted-foreground hover:text-foreground'
+                        ? "bg-[#4338ca] text-white shadow-xs font-semibold"
+                        : "text-muted-foreground hover:text-foreground"
                     }`}
                   >
                     Same items only
@@ -493,16 +537,28 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
                       Assignment submission
                     </span>
                     <DeltaPill
-                      delta={compareResult.sharedData.metrics.assignmentSubmission.deltaDisplay}
+                      delta={
+                        compareResult.sharedData.metrics.assignmentSubmission
+                          .deltaDisplay
+                      }
                     />
                   </div>
 
                   <div className="flex items-baseline gap-2">
                     <span className="text-4xl font-black text-[#14162b] dark:text-[#f1f3fa] num tracking-tight">
-                      {compareResult.sharedData.metrics.assignmentSubmission.currentDisplay}%
+                      {
+                        compareResult.sharedData.metrics.assignmentSubmission
+                          .currentDisplay
+                      }
+                      %
                     </span>
                     <span className="text-xs text-muted-foreground font-medium num">
-                      from {compareResult.sharedData.metrics.assignmentSubmission.baselineDisplay}%
+                      from{" "}
+                      {
+                        compareResult.sharedData.metrics.assignmentSubmission
+                          .baselineDisplay
+                      }
+                      %
                     </span>
                   </div>
 
@@ -520,8 +576,16 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
                     <div className="flex items-center justify-between text-[11px]">
                       <span>Median</span>
                       <span className="num font-semibold text-foreground">
-                        {compareResult.sharedData.metrics.assignmentSubmission.baselineMedian}% →{' '}
-                        {compareResult.sharedData.metrics.assignmentSubmission.currentMedian}%
+                        {
+                          compareResult.sharedData.metrics.assignmentSubmission
+                            .baselineMedian
+                        }
+                        % →{" "}
+                        {
+                          compareResult.sharedData.metrics.assignmentSubmission
+                            .currentMedian
+                        }
+                        %
                       </span>
                     </div>
                     <p className="text-[11px] text-muted-foreground">
@@ -537,16 +601,28 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
                       Content consumption
                     </span>
                     <DeltaPill
-                      delta={compareResult.sharedData.metrics.contentConsumption.deltaDisplay}
+                      delta={
+                        compareResult.sharedData.metrics.contentConsumption
+                          .deltaDisplay
+                      }
                     />
                   </div>
 
                   <div className="flex items-baseline gap-2">
                     <span className="text-3xl font-extrabold text-[#14162b] dark:text-[#f1f3fa] num tracking-tight">
-                      {compareResult.sharedData.metrics.contentConsumption.currentDisplay}%
+                      {
+                        compareResult.sharedData.metrics.contentConsumption
+                          .currentDisplay
+                      }
+                      %
                     </span>
                     <span className="text-xs text-muted-foreground font-medium num">
-                      from {compareResult.sharedData.metrics.contentConsumption.baselineDisplay}%
+                      from{" "}
+                      {
+                        compareResult.sharedData.metrics.contentConsumption
+                          .baselineDisplay
+                      }
+                      %
                     </span>
                   </div>
 
@@ -564,8 +640,16 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
                     <div className="flex items-center justify-between text-[11px]">
                       <span>Median</span>
                       <span className="num font-semibold text-foreground">
-                        {compareResult.sharedData.metrics.contentConsumption.baselineMedian}% →{' '}
-                        {compareResult.sharedData.metrics.contentConsumption.currentMedian}%
+                        {
+                          compareResult.sharedData.metrics.contentConsumption
+                            .baselineMedian
+                        }
+                        % →{" "}
+                        {
+                          compareResult.sharedData.metrics.contentConsumption
+                            .currentMedian
+                        }
+                        %
                       </span>
                     </div>
                     <p className="text-[11px] text-muted-foreground">
@@ -581,16 +665,28 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
                       Session attendance
                     </span>
                     <DeltaPill
-                      delta={compareResult.sharedData.metrics.liveAttendance.deltaDisplay}
+                      delta={
+                        compareResult.sharedData.metrics.liveAttendance
+                          .deltaDisplay
+                      }
                     />
                   </div>
 
                   <div className="flex items-baseline gap-2">
                     <span className="text-3xl font-extrabold text-[#14162b] dark:text-[#f1f3fa] num tracking-tight">
-                      {compareResult.sharedData.metrics.liveAttendance.currentDisplay}%
+                      {
+                        compareResult.sharedData.metrics.liveAttendance
+                          .currentDisplay
+                      }
+                      %
                     </span>
                     <span className="text-xs text-muted-foreground font-medium num">
-                      from {compareResult.sharedData.metrics.liveAttendance.baselineDisplay}%
+                      from{" "}
+                      {
+                        compareResult.sharedData.metrics.liveAttendance
+                          .baselineDisplay
+                      }
+                      %
                     </span>
                   </div>
 
@@ -608,15 +704,31 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
                     <div className="flex items-center justify-between text-[11px]">
                       <span>Live + recording</span>
                       <span className="num font-semibold text-foreground">
-                        {compareResult.sharedData.metrics.attendance.baselineDisplay}% →{' '}
-                        {compareResult.sharedData.metrics.attendance.currentDisplay}%
+                        {
+                          compareResult.sharedData.metrics.attendance
+                            .baselineDisplay
+                        }
+                        % →{" "}
+                        {
+                          compareResult.sharedData.metrics.attendance
+                            .currentDisplay
+                        }
+                        %
                       </span>
                     </div>
                     <div className="flex items-center justify-between text-[11px]">
                       <span>Median</span>
                       <span className="num font-semibold text-foreground">
-                        {compareResult.sharedData.metrics.attendance.baselineMedian}% →{' '}
-                        {compareResult.sharedData.metrics.attendance.currentMedian}%
+                        {
+                          compareResult.sharedData.metrics.attendance
+                            .baselineMedian
+                        }
+                        % →{" "}
+                        {
+                          compareResult.sharedData.metrics.attendance
+                            .currentMedian
+                        }
+                        %
                       </span>
                     </div>
                   </div>
@@ -633,7 +745,10 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
               </h4>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 {compareResult.sharedData.takeaways.map((item, idx) => (
-                  <div key={idx} className="flex items-start gap-2.5 text-xs text-foreground/90 leading-relaxed">
+                  <div
+                    key={idx}
+                    className="flex items-start gap-2.5 text-xs text-foreground/90 leading-relaxed"
+                  >
                     <span
                       className="w-2 h-2 rounded-full shrink-0 mt-1.5"
                       style={{ backgroundColor: item.color }}
@@ -649,19 +764,31 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
           <div className="space-y-4">
             <div className="flex items-center gap-1 border-b border-[#e3e5ef] dark:border-[#282c40] pb-1 text-xs overflow-x-auto">
               {[
-                { key: 'summary', label: 'Summary & distributions' },
-                { key: 'learners', label: `Learners ${compareResult.sharedData?.counts?.learnersCount || 31}` },
-                { key: 'assignments', label: `Assignments ${compareResult.sharedData?.counts?.assignmentsCount || 5}` },
-                { key: 'content', label: `Content weeks ${compareResult.sharedData?.counts?.contentWeeksCount || 12}` },
-                { key: 'attendance', label: `Attendance ${compareResult.sharedData?.counts?.attendanceSessionsCount || 34}` },
+                { key: "summary", label: "Summary & distributions" },
+                {
+                  key: "learners",
+                  label: `Learners ${compareResult.sharedData?.counts?.learnersCount || 31}`,
+                },
+                {
+                  key: "assignments",
+                  label: `Assignments ${compareResult.sharedData?.counts?.assignmentsCount || 5}`,
+                },
+                {
+                  key: "content",
+                  label: `Content weeks ${compareResult.sharedData?.counts?.contentWeeksCount || 12}`,
+                },
+                {
+                  key: "attendance",
+                  label: `Attendance ${compareResult.sharedData?.counts?.attendanceSessionsCount || 34}`,
+                },
               ].map((tab) => (
                 <button
                   key={tab.key}
                   onClick={() => setActiveSubTab(tab.key as any)}
                   className={`px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer whitespace-nowrap ${
                     activeSubTab === tab.key
-                      ? 'bg-[#4338ca]/10 text-[#4338ca] font-semibold'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
+                      ? "bg-[#4338ca]/10 text-[#4338ca] font-semibold"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted/30"
                   }`}
                 >
                   {tab.label}
@@ -670,7 +797,7 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
             </div>
 
             {/* TAB 1: SUMMARY & DISTRIBUTIONS */}
-            {activeSubTab === 'summary' && (
+            {activeSubTab === "summary" && (
               <div className="space-y-4">
                 {/* Row 1: Charts (Cohort Trajectory + Learner Composite Scatter) */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -680,7 +807,9 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
                       <h4 className="text-xs font-bold text-[#14162b] dark:text-[#f1f3fa]">
                         Cohort trajectory
                       </h4>
-                      <span className="text-[11px] text-muted-foreground">Percentage points</span>
+                      <span className="text-[11px] text-muted-foreground">
+                        Percentage points
+                      </span>
                     </div>
 
                     <div className="h-64">
@@ -688,35 +817,64 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
                         <BarChart
                           data={[
                             {
-                              name: 'Assignments',
-                              Baseline: compareResult.metrics?.assignmentSubmission?.leftAvg || 0,
-                              Current: compareResult.metrics?.assignmentSubmission?.rightAvg || 0,
+                              name: "Assignments",
+                              Baseline:
+                                compareResult.metrics?.assignmentSubmission
+                                  ?.leftAvg || 0,
+                              Current:
+                                compareResult.metrics?.assignmentSubmission
+                                  ?.rightAvg || 0,
                             },
                             {
-                              name: 'Content',
-                              Baseline: compareResult.metrics?.contentConsumption?.leftAvg || 0,
-                              Current: compareResult.metrics?.contentConsumption?.rightAvg || 0,
+                              name: "Content",
+                              Baseline:
+                                compareResult.metrics?.contentConsumption
+                                  ?.leftAvg || 0,
+                              Current:
+                                compareResult.metrics?.contentConsumption
+                                  ?.rightAvg || 0,
                             },
                             {
-                              name: 'Live class',
-                              Baseline: compareResult.metrics?.liveAttendance?.leftAvg || 0,
-                              Current: compareResult.metrics?.liveAttendance?.rightAvg || 0,
+                              name: "Live class",
+                              Baseline:
+                                compareResult.metrics?.liveAttendance
+                                  ?.leftAvg || 0,
+                              Current:
+                                compareResult.metrics?.liveAttendance
+                                  ?.rightAvg || 0,
                             },
                             {
-                              name: 'Live + rec',
-                              Baseline: compareResult.metrics?.attendance?.leftAvg || 0,
-                              Current: compareResult.metrics?.attendance?.rightAvg || 0,
+                              name: "Live + rec",
+                              Baseline:
+                                compareResult.metrics?.attendance?.leftAvg || 0,
+                              Current:
+                                compareResult.metrics?.attendance?.rightAvg ||
+                                0,
                             },
                           ]}
                           margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
                         >
-                          <CartesianGrid strokeDasharray="3 3" opacity={0.2} vertical={false} />
+                          <CartesianGrid
+                            strokeDasharray="3 3"
+                            opacity={0.2}
+                            vertical={false}
+                          />
                           <XAxis dataKey="name" tick={{ fontSize: 11 }} />
                           <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} />
                           <Tooltip />
-                          <Legend wrapperStyle={{ fontSize: 11, paddingTop: 10 }} />
-                          <Bar dataKey="Baseline" fill="#94a3b8" radius={[4, 4, 0, 0]} />
-                          <Bar dataKey="Current" fill="#4338ca" radius={[4, 4, 0, 0]} />
+                          <Legend
+                            wrapperStyle={{ fontSize: 11, paddingTop: 10 }}
+                          />
+                          <Bar
+                            dataKey="Baseline"
+                            fill="#94a3b8"
+                            radius={[4, 4, 0, 0]}
+                          />
+                          <Bar
+                            dataKey="Current"
+                            fill="#4338ca"
+                            radius={[4, 4, 0, 0]}
+                          />
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
@@ -728,12 +886,16 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
                       <h4 className="text-xs font-bold text-[#14162b] dark:text-[#f1f3fa]">
                         Learner composite
                       </h4>
-                      <span className="text-[11px] text-muted-foreground">Dashed line = no change</span>
+                      <span className="text-[11px] text-muted-foreground">
+                        Dashed line = no change
+                      </span>
                     </div>
 
                     <div className="h-64">
                       <ResponsiveContainer width="100%" height="100%">
-                        <ScatterChart margin={{ top: 10, right: 20, bottom: 25, left: -20 }}>
+                        <ScatterChart
+                          margin={{ top: 10, right: 20, bottom: 25, left: -20 }}
+                        >
                           <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
                           <XAxis
                             type="number"
@@ -750,13 +912,13 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
                             tick={{ fontSize: 11 }}
                           />
                           <Tooltip
-                            cursor={{ strokeDasharray: '3 3' }}
-                            formatter={(val: any) => [`${val}%`, '']}
+                            cursor={{ strokeDasharray: "3 3" }}
+                            formatter={(val: any) => [`${val}%`, ""]}
                             labelFormatter={(_label, payload) => {
                               const d = payload?.[0]?.payload;
                               return d
-                                ? `${d.name} (${d.status}: ${d.compositeChange >= 0 ? '+' : ''}${d.compositeChange} pp)`
-                                : '';
+                                ? `${d.name} (${d.status}: ${d.compositeChange >= 0 ? "+" : ""}${d.compositeChange} pp)`
+                                : "";
                             }}
                           />
                           <ReferenceLine
@@ -768,16 +930,22 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
                             strokeWidth={1.5}
                             strokeDasharray="4 4"
                           />
-                          <Scatter data={compareResult.learnerComparisons || []}>
-                            {(compareResult.learnerComparisons || []).map((entry, index) => {
-                              const color =
-                                entry.status === 'Improved'
-                                  ? '#10b981'
-                                  : entry.status === 'Declined'
-                                  ? '#ef4444'
-                                  : '#94a3b8';
-                              return <Cell key={`cell-${index}`} fill={color} />;
-                            })}
+                          <Scatter
+                            data={compareResult.learnerComparisons || []}
+                          >
+                            {(compareResult.learnerComparisons || []).map(
+                              (entry, index) => {
+                                const color =
+                                  entry.status === "Improved"
+                                    ? "#10b981"
+                                    : entry.status === "Declined"
+                                      ? "#ef4444"
+                                      : "#94a3b8";
+                                return (
+                                  <Cell key={`cell-${index}`} fill={color} />
+                                );
+                              },
+                            )}
                           </Scatter>
                         </ScatterChart>
                       </ResponsiveContainer>
@@ -810,8 +978,8 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
                         Segment migration
                       </h4>
                       <span className="text-[11px] text-muted-foreground font-medium">
-                        {compareResult.segmentMatrix?.movedUp || 0} up ·{' '}
-                        {compareResult.segmentMatrix?.unchanged || 0} held ·{' '}
+                        {compareResult.segmentMatrix?.movedUp || 0} up ·{" "}
+                        {compareResult.segmentMatrix?.unchanged || 0} held ·{" "}
                         {compareResult.segmentMatrix?.movedDown || 0} down
                       </span>
                     </div>
@@ -835,38 +1003,49 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
                           </tr>
                         </thead>
                         <tbody>
-                          {(['High', 'Medium', 'Low'] as const).map((fromSeg) => (
-                            <tr key={fromSeg}>
-                              <td className="p-2.5 border border-[#e3e5ef] dark:border-[#282c40] font-semibold text-left bg-[#f4f5fa]/50 dark:bg-muted/5">
-                                {fromSeg}
-                              </td>
-                              {(['High', 'Medium', 'Low'] as const).map((toSeg) => {
-                                const count =
-                                  compareResult.segmentMatrix?.matrix?.[fromSeg]?.[toSeg] || 0;
-                                const isUpgrade =
-                                  (fromSeg === 'Low' && (toSeg === 'Medium' || toSeg === 'High')) ||
-                                  (fromSeg === 'Medium' && toSeg === 'High');
-                                const isDowngrade =
-                                  (fromSeg === 'High' && (toSeg === 'Medium' || toSeg === 'Low')) ||
-                                  (fromSeg === 'Medium' && toSeg === 'Low');
+                          {(["High", "Medium", "Low"] as const).map(
+                            (fromSeg) => (
+                              <tr key={fromSeg}>
+                                <td className="p-2.5 border border-[#e3e5ef] dark:border-[#282c40] font-semibold text-left bg-[#f4f5fa]/50 dark:bg-muted/5">
+                                  {fromSeg}
+                                </td>
+                                {(["High", "Medium", "Low"] as const).map(
+                                  (toSeg) => {
+                                    const count =
+                                      compareResult.segmentMatrix?.matrix?.[
+                                        fromSeg
+                                      ]?.[toSeg] || 0;
+                                    const isUpgrade =
+                                      (fromSeg === "Low" &&
+                                        (toSeg === "Medium" ||
+                                          toSeg === "High")) ||
+                                      (fromSeg === "Medium" &&
+                                        toSeg === "High");
+                                    const isDowngrade =
+                                      (fromSeg === "High" &&
+                                        (toSeg === "Medium" ||
+                                          toSeg === "Low")) ||
+                                      (fromSeg === "Medium" && toSeg === "Low");
 
-                                const cellBg = isUpgrade
-                                  ? 'bg-[#ecfdf5] dark:bg-[#064e3b]/30 text-[#065f46] dark:text-[#6ee7b7] font-bold'
-                                  : isDowngrade
-                                  ? 'bg-[#fef2f2] dark:bg-[#7f1d1d]/30 text-[#991b1b] dark:text-[#fca5a5] font-bold'
-                                  : 'text-foreground font-medium';
+                                    const cellBg = isUpgrade
+                                      ? "bg-[#ecfdf5] dark:bg-[#064e3b]/30 text-[#065f46] dark:text-[#6ee7b7] font-bold"
+                                      : isDowngrade
+                                        ? "bg-[#fef2f2] dark:bg-[#7f1d1d]/30 text-[#991b1b] dark:text-[#fca5a5] font-bold"
+                                        : "text-foreground font-medium";
 
-                                return (
-                                  <td
-                                    key={toSeg}
-                                    className={`p-2.5 border border-[#e3e5ef] dark:border-[#282c40] num ${cellBg}`}
-                                  >
-                                    {count}
-                                  </td>
-                                );
-                              })}
-                            </tr>
-                          ))}
+                                    return (
+                                      <td
+                                        key={toSeg}
+                                        className={`p-2.5 border border-[#e3e5ef] dark:border-[#282c40] num ${cellBg}`}
+                                      >
+                                        {count}
+                                      </td>
+                                    );
+                                  },
+                                )}
+                              </tr>
+                            ),
+                          )}
                         </tbody>
                       </table>
                     </div>
@@ -892,19 +1071,24 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
                     <div className="space-y-3 text-xs">
                       <div className="flex items-start justify-between pb-2 border-b border-[#e3e5ef] dark:border-[#282c40]">
                         <div>
-                          <p className="font-semibold text-foreground">Newly at-risk</p>
+                          <p className="font-semibold text-foreground">
+                            Newly at-risk
+                          </p>
                           <p className="text-[10px] text-muted-foreground mt-0.5">
                             Fell below 50% assignment or critical composite
                           </p>
                         </div>
                         <span className="text-xl font-black text-rose-600 dark:text-rose-400 num">
-                          {compareResult.atRiskMovement?.newlyAtRisk?.length || 0}
+                          {compareResult.atRiskMovement?.newlyAtRisk?.length ||
+                            0}
                         </span>
                       </div>
 
                       <div className="flex items-start justify-between pb-2 border-b border-[#e3e5ef] dark:border-[#282c40]">
                         <div>
-                          <p className="font-semibold text-foreground">Recovered</p>
+                          <p className="font-semibold text-foreground">
+                            Recovered
+                          </p>
                           <p className="text-[10px] text-muted-foreground mt-0.5">
                             Moved out of the critical zone
                           </p>
@@ -916,13 +1100,16 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
 
                       <div className="flex items-start justify-between">
                         <div>
-                          <p className="font-semibold text-foreground">Persistent</p>
+                          <p className="font-semibold text-foreground">
+                            Persistent
+                          </p>
                           <p className="text-[10px] text-muted-foreground mt-0.5">
                             Critical in both snapshots
                           </p>
                         </div>
                         <span className="text-xl font-black text-amber-600 dark:text-amber-400 num">
-                          {compareResult.atRiskMovement?.stillAtRisk?.length || 0}
+                          {compareResult.atRiskMovement?.stillAtRisk?.length ||
+                            0}
                         </span>
                       </div>
                     </div>
@@ -937,9 +1124,11 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
                       Top improvers
                     </h4>
 
-                    {(!compareResult.topImprovers || compareResult.topImprovers.length === 0) ? (
+                    {!compareResult.topImprovers ||
+                    compareResult.topImprovers.length === 0 ? (
                       <p className="text-xs text-muted-foreground italic py-3">
-                        No students improved beyond the tolerance threshold during this period.
+                        No students improved beyond the tolerance threshold
+                        during this period.
                       </p>
                     ) : (
                       <div className="space-y-2">
@@ -948,7 +1137,7 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
                             key={imp.studentId}
                             onClick={() => {
                               setSelectedStudentId(imp.studentId);
-                              setActiveTab('students');
+                              setActiveTab("students");
                             }}
                             className="flex items-center justify-between p-2 rounded-xl hover:bg-muted/30 transition-colors cursor-pointer"
                           >
@@ -972,10 +1161,10 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
                         ))}
                         <p className="text-[11px] text-muted-foreground pt-1">
                           {compareResult.topImprovers.length === 1
-                            ? 'Only one learner improved this period.'
+                            ? "Only one learner improved this period."
                             : compareResult.topImprovers.length === 2
-                            ? 'Only two learners improved this period.'
-                            : `${compareResult.topImprovers.length} learners improved this period.`}
+                              ? "Only two learners improved this period."
+                              : `${compareResult.topImprovers.length} learners improved this period.`}
                         </p>
                       </div>
                     )}
@@ -987,9 +1176,11 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
                       Top decliners
                     </h4>
 
-                    {(!compareResult.topDecliners || compareResult.topDecliners.length === 0) ? (
+                    {!compareResult.topDecliners ||
+                    compareResult.topDecliners.length === 0 ? (
                       <p className="text-xs text-muted-foreground italic py-3">
-                        No students declined beyond the tolerance threshold during this period.
+                        No students declined beyond the tolerance threshold
+                        during this period.
                       </p>
                     ) : (
                       <div className="space-y-2">
@@ -998,7 +1189,7 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
                             key={dec.studentId}
                             onClick={() => {
                               setSelectedStudentId(dec.studentId);
-                              setActiveTab('students');
+                              setActiveTab("students");
                             }}
                             className="flex items-center justify-between p-2 rounded-xl hover:bg-muted/30 transition-colors cursor-pointer"
                           >
@@ -1028,29 +1219,35 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
             )}
 
             {/* TAB 2: LEARNERS */}
-            {activeSubTab === 'learners' && (
+            {activeSubTab === "learners" && (
               <LearnersComparisonTab
                 learners={compareResult.learnerComparisons || []}
                 onSelectStudent={(id) => {
                   setSelectedStudentId(id);
-                  setActiveTab('students');
+                  setActiveTab("students");
                 }}
               />
             )}
 
             {/* TAB 3: ASSIGNMENTS */}
-            {activeSubTab === 'assignments' && (
-              <AssignmentsComparisonTab items={compareResult.assignmentComparison || []} />
+            {activeSubTab === "assignments" && (
+              <AssignmentsComparisonTab
+                items={compareResult.assignmentComparison || []}
+              />
             )}
 
             {/* TAB 4: CONTENT */}
-            {activeSubTab === 'content' && (
-              <ContentComparisonTab items={compareResult.contentComparison || []} />
+            {activeSubTab === "content" && (
+              <ContentComparisonTab
+                items={compareResult.contentComparison || []}
+              />
             )}
 
             {/* TAB 5: ATTENDANCE */}
-            {activeSubTab === 'attendance' && (
-              <AttendanceComparisonTab sessions={compareResult.sessionComparison || []} />
+            {activeSubTab === "attendance" && (
+              <AttendanceComparisonTab
+                sessions={compareResult.sessionComparison || []}
+              />
             )}
           </div>
         </div>
@@ -1060,11 +1257,18 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
       <footer className="pt-8 pb-4 text-center text-xs text-muted-foreground flex flex-wrap items-center justify-center gap-4 border-t border-[#e3e5ef] dark:border-[#282c40]">
         <span>Student Progress Platform · Cohort analytics</span>
         <span>·</span>
-        <a href="#privacy" className="hover:underline">Privacy</a>
+        <a href="#privacy" className="hover:underline">
+          Privacy
+        </a>
         <span>·</span>
-        <a href="#terms" className="hover:underline">Terms</a>
+        <a href="#terms" className="hover:underline">
+          Terms
+        </a>
         <span>·</span>
-        <button onClick={() => setShowHelpModal(true)} className="hover:underline cursor-pointer">
+        <button
+          onClick={() => setShowHelpModal(true)}
+          className="hover:underline cursor-pointer"
+        >
           How to read this page
         </button>
       </footer>
@@ -1088,21 +1292,41 @@ const StrictCompareContainer: React.FC<StrictCompareContainerProps> = ({
 
             <div className="space-y-3 text-xs leading-relaxed text-muted-foreground">
               <p>
-                <strong className="text-foreground">Strict comparison rules:</strong> Reports are compared only if they belong to the exact same batch, have different report dates, share 100% of the same learners, and maintain continuous curriculum progression.
+                <strong className="text-foreground">
+                  Strict comparison rules:
+                </strong>{" "}
+                Reports are compared only if they belong to the exact same
+                batch, have different report dates, share 100% of the same
+                learners, and maintain continuous curriculum progression.
               </p>
               <p>
-                <strong className="text-foreground">Tolerance threshold (±{settings.deltaTolerance} pp):</strong> Learner changes within ±{settings.deltaTolerance} percentage points are categorized as <span className="font-semibold text-foreground">Same</span> to prevent overreacting to day-to-day noise.
+                <strong className="text-foreground">
+                  Tolerance threshold (±{settings.deltaTolerance} pp):
+                </strong>{" "}
+                Learner changes within ±{settings.deltaTolerance} percentage
+                points are categorized as{" "}
+                <span className="font-semibold text-foreground">Same</span> to
+                prevent overreacting to day-to-day noise.
               </p>
               <p>
-                <strong className="text-foreground">Segment migration:</strong> High (≥80%), Medium (50-79%), and Low (&lt;50%). The 3x3 matrix tracks transitions between these brackets.
+                <strong className="text-foreground">Segment migration:</strong>{" "}
+                High (≥80%), Medium (50-79%), and Low (&lt;50%). The 3x3 matrix
+                tracks transitions between these brackets.
               </p>
               <p>
-                <strong className="text-foreground">Fair comparison:</strong> "Reported values" shows current snapshot averages including newly added curriculum. "Same items only" isolates common assignments and sessions present in both snapshots.
+                <strong className="text-foreground">Fair comparison:</strong>{" "}
+                "Reported values" shows current snapshot averages including
+                newly added curriculum. "Same items only" isolates common
+                assignments and sessions present in both snapshots.
               </p>
             </div>
 
             <div className="pt-2 flex justify-end">
-              <Button size="sm" onClick={() => setShowHelpModal(false)} className="text-xs h-7 px-3 bg-[#4338ca] text-white">
+              <Button
+                size="sm"
+                onClick={() => setShowHelpModal(false)}
+                className="text-xs h-7 px-3 bg-[#4338ca] text-white"
+              >
                 Got it
               </Button>
             </div>
@@ -1124,10 +1348,10 @@ const DeltaPill: React.FC<{ delta: number }> = ({ delta }) => {
     <span
       className={`px-2 py-0.5 rounded-full text-xs font-bold num inline-flex items-center gap-0.5 ${
         isPositive
-          ? 'text-emerald-600 dark:text-emerald-400'
+          ? "text-emerald-600 dark:text-emerald-400"
           : isNegative
-          ? 'text-rose-600 dark:text-rose-400'
-          : 'text-muted-foreground'
+            ? "text-rose-600 dark:text-rose-400"
+            : "text-muted-foreground"
       }`}
     >
       {isPositive ? (
@@ -1146,7 +1370,7 @@ const DeltaPill: React.FC<{ delta: number }> = ({ delta }) => {
 // Sub-Tab 2: Learners Detail Tab (Unmasked PII)
 // --------------------------------------------------------------------------------------------------
 interface LearnersComparisonTabProps {
-  learners: NonNullable<StrictCompareResult['learnerComparisons']>;
+  learners: NonNullable<StrictCompareResult["learnerComparisons"]>;
   onSelectStudent: (studentId: string) => void;
 }
 
@@ -1154,12 +1378,14 @@ const LearnersComparisonTab: React.FC<LearnersComparisonTabProps> = ({
   learners,
   onSelectStudent,
 }) => {
-  const [filter, setFilter] = useState<'ALL' | 'Improved' | 'Same' | 'Declined'>('ALL');
-  const [query, setQuery] = useState('');
+  const [filter, setFilter] = useState<
+    "ALL" | "Improved" | "Same" | "Declined"
+  >("ALL");
+  const [query, setQuery] = useState("");
 
   const filtered = useMemo(() => {
     return learners.filter((l) => {
-      if (filter !== 'ALL' && l.status !== filter) return false;
+      if (filter !== "ALL" && l.status !== filter) return false;
       if (query.trim()) {
         const q = query.toLowerCase();
         return (
@@ -1177,17 +1403,17 @@ const LearnersComparisonTab: React.FC<LearnersComparisonTabProps> = ({
       {/* Search & Filter pills */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
         <div className="flex items-center gap-1.5 text-xs">
-          {(['ALL', 'Improved', 'Same', 'Declined'] as const).map((opt) => (
+          {(["ALL", "Improved", "Same", "Declined"] as const).map((opt) => (
             <button
               key={opt}
               onClick={() => setFilter(opt)}
               className={`px-3 py-1 rounded-lg font-medium transition-colors cursor-pointer ${
                 filter === opt
-                  ? 'bg-[#4338ca] text-white shadow-xs font-semibold'
-                  : 'text-muted-foreground hover:text-foreground bg-muted/40'
+                  ? "bg-[#4338ca] text-white shadow-xs font-semibold"
+                  : "text-muted-foreground hover:text-foreground bg-muted/40"
               }`}
             >
-              {opt === 'ALL' ? 'All learners' : opt}
+              {opt === "ALL" ? "All learners" : opt}
             </button>
           ))}
         </div>
@@ -1226,48 +1452,59 @@ const LearnersComparisonTab: React.FC<LearnersComparisonTabProps> = ({
                 className="hover:bg-muted/30 cursor-pointer transition-colors"
               >
                 <td className="p-2.5">
-                  <p className="font-semibold text-foreground">
-                    {l.name}
-                  </p>
+                  <p className="font-semibold text-foreground">{l.name}</p>
                   <p className="text-[10px] text-muted-foreground font-mono">
                     {l.phoneE164}
                   </p>
                 </td>
                 <td className="p-2.5">
                   <span className="font-medium text-[11px] text-muted-foreground">
-                    {l.leftSegment} → <strong className="text-foreground">{l.rightSegment}</strong>
+                    {l.leftSegment} →{" "}
+                    <strong className="text-foreground">
+                      {l.rightSegment}
+                    </strong>
                   </span>
                 </td>
                 <td className="p-2.5 text-right num font-semibold">
                   <span
                     className={
                       l.compositeChange > 0
-                        ? 'text-emerald-600 dark:text-emerald-400'
+                        ? "text-emerald-600 dark:text-emerald-400"
                         : l.compositeChange < 0
-                        ? 'text-rose-600 dark:text-rose-400'
-                        : 'text-muted-foreground'
+                          ? "text-rose-600 dark:text-rose-400"
+                          : "text-muted-foreground"
                     }
                   >
-                    {l.compositeChange >= 0 ? `+${l.compositeChange}` : l.compositeChange} pp
+                    {l.compositeChange >= 0
+                      ? `+${l.compositeChange}`
+                      : l.compositeChange}{" "}
+                    pp
                   </span>
                 </td>
                 <td className="p-2.5 text-right num">
-                  {l.assignmentDelta >= 0 ? `+${l.assignmentDelta}` : l.assignmentDelta} pp
+                  {l.assignmentDelta >= 0
+                    ? `+${l.assignmentDelta}`
+                    : l.assignmentDelta}{" "}
+                  pp
                 </td>
                 <td className="p-2.5 text-right num">
-                  {l.contentDelta >= 0 ? `+${l.contentDelta}` : l.contentDelta} pp
+                  {l.contentDelta >= 0 ? `+${l.contentDelta}` : l.contentDelta}{" "}
+                  pp
                 </td>
                 <td className="p-2.5 text-right num">
-                  {l.liveOrRecDelta >= 0 ? `+${l.liveOrRecDelta}` : l.liveOrRecDelta} pp
+                  {l.liveOrRecDelta >= 0
+                    ? `+${l.liveOrRecDelta}`
+                    : l.liveOrRecDelta}{" "}
+                  pp
                 </td>
                 <td className="p-2.5 text-center">
                   <span
                     className={`inline-block px-2 py-0.5 rounded-md text-[10px] font-semibold ${
-                      l.status === 'Improved'
-                        ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                        : l.status === 'Declined'
-                        ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400'
-                        : 'bg-muted text-muted-foreground'
+                      l.status === "Improved"
+                        ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                        : l.status === "Declined"
+                          ? "bg-rose-500/10 text-rose-600 dark:text-rose-400"
+                          : "bg-muted text-muted-foreground"
                     }`}
                   >
                     {l.status}
@@ -1286,7 +1523,7 @@ const LearnersComparisonTab: React.FC<LearnersComparisonTabProps> = ({
 // Sub-Tab 3: Assignments Comparison Tab
 // --------------------------------------------------------------------------------------------------
 const AssignmentsComparisonTab: React.FC<{
-  items: NonNullable<StrictCompareResult['assignmentComparison']>;
+  items: NonNullable<StrictCompareResult["assignmentComparison"]>;
 }> = ({ items }) => {
   const [showTableOnly, setShowTableOnly] = useState(false);
 
@@ -1302,8 +1539,12 @@ const AssignmentsComparisonTab: React.FC<{
           onClick={() => setShowTableOnly(!showTableOnly)}
           className="text-xs h-7 px-2.5 gap-1.5"
         >
-          {showTableOnly ? <BarChart3 className="w-3.5 h-3.5" /> : <TableIcon className="w-3.5 h-3.5" />}
-          {showTableOnly ? 'Show chart' : 'Show table'}
+          {showTableOnly ? (
+            <BarChart3 className="w-3.5 h-3.5" />
+          ) : (
+            <TableIcon className="w-3.5 h-3.5" />
+          )}
+          {showTableOnly ? "Show chart" : "Show table"}
         </Button>
       </div>
 
@@ -1312,7 +1553,8 @@ const AssignmentsComparisonTab: React.FC<{
           <ResponsiveContainer width="100%" height="100%">
             <BarChart
               data={items.map((it) => ({
-                name: it.name.length > 20 ? it.name.slice(0, 18) + '...' : it.name,
+                name:
+                  it.name.length > 20 ? it.name.slice(0, 18) + "..." : it.name,
                 fullName: it.name,
                 Baseline: it.leftSubmissionRate ?? 0,
                 Current: it.rightSubmissionRate,
@@ -1320,8 +1562,18 @@ const AssignmentsComparisonTab: React.FC<{
               }))}
               margin={{ top: 10, right: 10, left: -20, bottom: 40 }}
             >
-              <CartesianGrid strokeDasharray="3 3" opacity={0.2} vertical={false} />
-              <XAxis dataKey="name" angle={-30} textAnchor="end" interval={0} tick={{ fontSize: 10 }} />
+              <CartesianGrid
+                strokeDasharray="3 3"
+                opacity={0.2}
+                vertical={false}
+              />
+              <XAxis
+                dataKey="name"
+                angle={-30}
+                textAnchor="end"
+                interval={0}
+                tick={{ fontSize: 10 }}
+              />
               <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} />
               <Tooltip />
               <Legend wrapperStyle={{ fontSize: 11 }} verticalAlign="top" />
@@ -1359,7 +1611,9 @@ const AssignmentsComparisonTab: React.FC<{
                   )}
                 </td>
                 <td className="p-2.5 text-right num text-muted-foreground">
-                  {it.leftSubmissionRate !== null ? `${it.leftSubmissionRate}%` : '—'}
+                  {it.leftSubmissionRate !== null
+                    ? `${it.leftSubmissionRate}%`
+                    : "—"}
                 </td>
                 <td className="p-2.5 text-right num font-semibold text-foreground">
                   {it.rightSubmissionRate}%
@@ -1369,16 +1623,16 @@ const AssignmentsComparisonTab: React.FC<{
                     <span
                       className={
                         it.deltaPts > 0
-                          ? 'text-emerald-600 dark:text-emerald-400'
+                          ? "text-emerald-600 dark:text-emerald-400"
                           : it.deltaPts < 0
-                          ? 'text-rose-600 dark:text-rose-400'
-                          : 'text-muted-foreground'
+                            ? "text-rose-600 dark:text-rose-400"
+                            : "text-muted-foreground"
                       }
                     >
                       {it.deltaPts >= 0 ? `+${it.deltaPts}` : it.deltaPts} pp
                     </span>
                   ) : (
-                    '—'
+                    "—"
                   )}
                 </td>
               </tr>
@@ -1394,7 +1648,7 @@ const AssignmentsComparisonTab: React.FC<{
 // Sub-Tab 4: Content Comparison Tab
 // --------------------------------------------------------------------------------------------------
 const ContentComparisonTab: React.FC<{
-  items: NonNullable<StrictCompareResult['contentComparison']>;
+  items: NonNullable<StrictCompareResult["contentComparison"]>;
 }> = ({ items }) => {
   return (
     <div className="bg-[#fdfdff] dark:bg-[#181b2a] border border-[#e3e5ef] dark:border-[#282c40] rounded-2xl p-5 space-y-3 shadow-xs">
@@ -1412,7 +1666,11 @@ const ContentComparisonTab: React.FC<{
             }))}
             margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
           >
-            <CartesianGrid strokeDasharray="3 3" opacity={0.2} vertical={false} />
+            <CartesianGrid
+              strokeDasharray="3 3"
+              opacity={0.2}
+              vertical={false}
+            />
             <XAxis dataKey="week" tick={{ fontSize: 11 }} />
             <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} />
             <Tooltip />
@@ -1437,7 +1695,9 @@ const ContentComparisonTab: React.FC<{
           <tbody className="divide-y divide-[#e3e5ef] dark:divide-[#282c40]">
             {items.map((w) => (
               <tr key={w.weekNo} className="hover:bg-muted/20">
-                <td className="p-2.5 font-semibold text-foreground">Week {w.weekNo}</td>
+                <td className="p-2.5 font-semibold text-foreground">
+                  Week {w.weekNo}
+                </td>
                 <td className="p-2.5 text-center">
                   {w.isNew ? (
                     <span className="px-2 py-0.5 rounded-md bg-[#4338ca]/10 text-[#4338ca] font-bold text-[10px]">
@@ -1450,7 +1710,7 @@ const ContentComparisonTab: React.FC<{
                   )}
                 </td>
                 <td className="p-2.5 text-right num text-muted-foreground">
-                  {w.leftConsumedPct !== null ? `${w.leftConsumedPct}%` : '—'}
+                  {w.leftConsumedPct !== null ? `${w.leftConsumedPct}%` : "—"}
                 </td>
                 <td className="p-2.5 text-right num font-semibold text-foreground">
                   {w.rightConsumedPct}%
@@ -1460,16 +1720,16 @@ const ContentComparisonTab: React.FC<{
                     <span
                       className={
                         w.deltaPts > 0
-                          ? 'text-emerald-600 dark:text-emerald-400'
+                          ? "text-emerald-600 dark:text-emerald-400"
                           : w.deltaPts < 0
-                          ? 'text-rose-600 dark:text-rose-400'
-                          : 'text-muted-foreground'
+                            ? "text-rose-600 dark:text-rose-400"
+                            : "text-muted-foreground"
                       }
                     >
                       {w.deltaPts >= 0 ? `+${w.deltaPts}` : w.deltaPts} pp
                     </span>
                   ) : (
-                    '—'
+                    "—"
                   )}
                 </td>
               </tr>
@@ -1485,7 +1745,7 @@ const ContentComparisonTab: React.FC<{
 // Sub-Tab 5: Attendance Comparison Tab
 // --------------------------------------------------------------------------------------------------
 const AttendanceComparisonTab: React.FC<{
-  sessions: NonNullable<StrictCompareResult['sessionComparison']>;
+  sessions: NonNullable<StrictCompareResult["sessionComparison"]>;
 }> = ({ sessions }) => {
   return (
     <div className="bg-[#fdfdff] dark:bg-[#181b2a] border border-[#e3e5ef] dark:border-[#282c40] rounded-2xl p-5 space-y-3 shadow-xs">
@@ -1508,8 +1768,12 @@ const AttendanceComparisonTab: React.FC<{
           <tbody className="divide-y divide-[#e3e5ef] dark:divide-[#282c40]">
             {sessions.map((s, i) => (
               <tr key={i} className="hover:bg-muted/20">
-                <td className="p-2.5 font-medium text-foreground max-w-xs truncate">{s.title}</td>
-                <td className="p-2.5 text-muted-foreground num">{s.date || '—'}</td>
+                <td className="p-2.5 font-medium text-foreground max-w-xs truncate">
+                  {s.title}
+                </td>
+                <td className="p-2.5 text-muted-foreground num">
+                  {s.date || "—"}
+                </td>
                 <td className="p-2.5 text-center">
                   {s.isNew ? (
                     <span className="px-2 py-0.5 rounded-md bg-[#4338ca]/10 text-[#4338ca] font-bold text-[10px]">
@@ -1532,16 +1796,19 @@ const AttendanceComparisonTab: React.FC<{
                     <span
                       className={
                         s.liveRecDeltaPts > 0
-                          ? 'text-emerald-600 dark:text-emerald-400'
+                          ? "text-emerald-600 dark:text-emerald-400"
                           : s.liveRecDeltaPts < 0
-                          ? 'text-rose-600 dark:text-rose-400'
-                          : 'text-muted-foreground'
+                            ? "text-rose-600 dark:text-rose-400"
+                            : "text-muted-foreground"
                       }
                     >
-                      {s.liveRecDeltaPts >= 0 ? `+${s.liveRecDeltaPts}` : s.liveRecDeltaPts} pp
+                      {s.liveRecDeltaPts >= 0
+                        ? `+${s.liveRecDeltaPts}`
+                        : s.liveRecDeltaPts}{" "}
+                      pp
                     </span>
                   ) : (
-                    '—'
+                    "—"
                   )}
                 </td>
               </tr>
