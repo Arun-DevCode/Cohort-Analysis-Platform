@@ -16,6 +16,7 @@ import {
   DropoutAssignmentScheduleItem,
 } from '../services/analytics/dropoutEngine.js';
 import { eq, and, lte, asc, desc, or, sql } from 'drizzle-orm';
+import { logger } from '../utils/logger.js';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function isUuid(val: string): boolean {
@@ -50,6 +51,27 @@ function findBatchWhere(batchId: string) {
         sql`lower(${batches.externalBatchId}) LIKE ${'%' + stripped + '%'}`,
         sql`lower(${batches.name}) LIKE ${'%' + stripped + '%'}`
       );
+}
+
+async function ensureBatchDropoutSettingsTable(db: any): Promise<void> {
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS "batch_dropout_settings" (
+        "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+        "batch_id" uuid NOT NULL REFERENCES "batches"("id") ON DELETE restrict,
+        "slipping_at" integer DEFAULT 1 NOT NULL,
+        "at_risk_at" integer DEFAULT 2 NOT NULL,
+        "dropout_at" integer DEFAULT 3 NOT NULL,
+        "min_due" integer DEFAULT 3 NOT NULL,
+        "created_at" timestamp with time zone DEFAULT now() NOT NULL,
+        "updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+        CONSTRAINT "batch_dropout_settings_thresholds_check" CHECK (slipping_at >= 1 AND slipping_at < at_risk_at AND at_risk_at < dropout_at AND min_due >= 1)
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS "batch_dropout_settings_batch_id_unique" ON "batch_dropout_settings" ("batch_id");
+    `);
+  } catch (err) {
+    logger.warn({ err }, 'ensureBatchDropoutSettingsTable notice');
+  }
 }
 
 export class DropoutController {
@@ -174,18 +196,24 @@ export class DropoutController {
       }
 
       // 3. Fetch batch dropout settings or use defaults
-      const settingsRecord = await db.query.batchDropoutSettings.findFirst({
-        where: eq(batchDropoutSettings.batchId, realBatchId),
-      });
+      let settings = DEFAULT_DROPOUT_SETTINGS;
+      try {
+        const settingsRecord = await db.query.batchDropoutSettings.findFirst({
+          where: eq(batchDropoutSettings.batchId, realBatchId),
+        });
 
-      const settings = settingsRecord
-        ? {
+        if (settingsRecord) {
+          settings = {
             slippingAt: settingsRecord.slippingAt,
             atRiskAt: settingsRecord.atRiskAt,
             dropoutAt: settingsRecord.dropoutAt,
             minDue: settingsRecord.minDue,
-          }
-        : DEFAULT_DROPOUT_SETTINGS;
+          };
+        }
+      } catch (err) {
+        logger.warn({ err }, 'batch_dropout_settings query failed, ensuring table and using defaults');
+        await ensureBatchDropoutSettingsTable(db);
+      }
 
       // 4. Fetch schedule for this batch
       const dbSchedule = await db.query.assignmentSchedule.findMany({
@@ -227,6 +255,36 @@ export class DropoutController {
           id: snap.id,
           snapshotDate: toDateString(snap.snapshotDate),
           assignments: results.map((r) => ({
+            studentId: r.studentId,
+            studentName: r.studentName,
+            phoneE164: r.phoneE164,
+            assignmentName: r.assignmentName,
+            status: r.status,
+            score: r.score ? parseFloat(r.score) : null,
+          })),
+        });
+      }
+
+      // Ensure target snapshot is guaranteed in allBatchSnapshots
+      if (!allBatchSnapshots.some((s) => s.id === targetSnapshot.id)) {
+        const targetResults = await db
+          .select({
+            studentId: assignmentResults.studentId,
+            studentName: students.name,
+            phoneE164: students.phoneE164,
+            assignmentName: assignmentItems.name,
+            status: assignmentResults.status,
+            score: assignmentResults.score,
+          })
+          .from(assignmentResults)
+          .innerJoin(assignmentItems, eq(assignmentResults.assignmentItemId, assignmentItems.id))
+          .innerJoin(students, eq(assignmentResults.studentId, students.id))
+          .where(eq(assignmentItems.snapshotId, targetSnapshot.id));
+
+        allBatchSnapshots.push({
+          id: targetSnapshot.id,
+          snapshotDate: toDateString(targetSnapshot.snapshotDate),
+          assignments: targetResults.map((r) => ({
             studentId: r.studentId,
             studentName: r.studentName,
             phoneE164: r.phoneE164,
@@ -300,6 +358,9 @@ export class DropoutController {
       }
 
       const realBatchId = batch.id;
+
+      // Ensure settings table exists before upserting
+      await ensureBatchDropoutSettingsTable(db);
 
       // 3. Upsert into batch_dropout_settings
       const [updated] = await db
