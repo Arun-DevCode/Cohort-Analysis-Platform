@@ -2,6 +2,17 @@
  * Student Progress Platform - REST API Client
  * Connects frontend React client to Node/Express backend
  */
+import type {
+  StoredReportFile,
+  AssignmentScheduleResponse,
+  AssignmentScheduleItem,
+  BatchLatenessReport,
+  BatchDropoutReport,
+  DropoutSettings,
+  BatchCompletionReport,
+  BatchCompletionSettings,
+} from '@/types';
+import { db } from '@/core/db';
 
 export interface BackendUser {
   id: string;
@@ -301,6 +312,208 @@ class ApiClient {
     const query = batchId ? `?batchId=${encodeURIComponent(batchId)}` : '';
     return this.request<Record<string, unknown>>(`/students/${studentId}${query}`);
   }
+
+  // --- Stored Report Files ---
+  async listBatchFiles(batchId: string): Promise<StoredReportFile[]> {
+    const data = await this.request<{ files: StoredReportFile[] }>(`/batches/${batchId}/files`);
+    return data.files;
+  }
+
+  async uploadAcademicWorkbook(
+    batchId: string,
+    file: File | Blob,
+    fileName: string
+  ): Promise<{ message: string; file: StoredReportFile }> {
+    const formData = new FormData();
+    formData.append('file', file, fileName);
+    return this.request<{ message: string; file: StoredReportFile }>(`/batches/${batchId}/files/academic`, {
+      method: 'POST',
+      body: formData,
+    });
+  }
+
+  async setCurrentAcademicVersion(
+    batchId: string,
+    fileId: string
+  ): Promise<{ message: string; file: StoredReportFile }> {
+    return this.request<{ message: string; file: StoredReportFile }>(`/batches/${batchId}/files/${fileId}/current`, {
+      method: 'PATCH',
+    });
+  }
+
+  async deleteReportFile(fileId: string): Promise<void> {
+    await this.request<{ message: string }>(`/files/${fileId}?confirm=true`, {
+      method: 'DELETE',
+    });
+  }
+
+  async downloadReportFile(fileId: string, originalName: string): Promise<void> {
+    const headers: Record<string, string> = {};
+    if (this.accessToken) {
+      headers['Authorization'] = `Bearer ${this.accessToken}`;
+    }
+    const res = await fetch(`${API_BASE}/files/${fileId}/download`, {
+      headers,
+    });
+    if (!res.ok) {
+      throw new Error(`Download failed with status ${res.status}`);
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = originalName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
+  // --- Assignment Schedule & Lateness (Stage 2) ---
+  async getAssignmentSchedule(batchId: string): Promise<AssignmentScheduleResponse> {
+    return this.request<AssignmentScheduleResponse>(`/batches/${batchId}/assignment-schedule`);
+  }
+
+  async updateAssignmentSchedule(
+    batchId: string,
+    schedule: AssignmentScheduleItem[]
+  ): Promise<{ message: string; schedule: AssignmentScheduleItem[] }> {
+    return this.request<{ message: string; schedule: AssignmentScheduleItem[] }>(
+      `/batches/${batchId}/assignment-schedule`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ schedule }),
+      }
+    );
+  }
+
+  async getAssignmentLateness(batchId: string, snapshotId: string): Promise<BatchLatenessReport> {
+    return this.request<BatchLatenessReport>(
+      `/batches/${batchId}/assignments/lateness?snapshotId=${encodeURIComponent(snapshotId)}`
+    );
+  }
+
+  // --- Drop-out Risk Analytics (Stage 3) ---
+  async getBatchDropout(batchId: string, snapshotId: string): Promise<BatchDropoutReport> {
+    return this.request<BatchDropoutReport>(
+      `/batches/${batchId}/dropout?snapshotId=${encodeURIComponent(snapshotId)}`
+    );
+  }
+
+  async updateDropoutSettings(
+    batchId: string,
+    settings: DropoutSettings
+  ): Promise<{ message: string; settings: DropoutSettings }> {
+    return this.request<{ message: string; settings: DropoutSettings }>(
+      `/batches/${batchId}/dropout/settings`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(settings),
+      }
+    );
+  }
+
+  async getBatchCompletion(batchId: string, snapshotId: string): Promise<BatchCompletionReport> {
+    return this.request<BatchCompletionReport>(
+      `/batches/${batchId}/completion?snapshotId=${encodeURIComponent(snapshotId)}`
+    );
+  }
+
+  async updateCompletionSettings(
+    batchId: string,
+    settings: BatchCompletionSettings
+  ): Promise<{ message: string; settings: BatchCompletionSettings }> {
+    return this.request<{ message: string; settings: BatchCompletionSettings }>(
+      `/batches/${batchId}/completion/settings`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(settings),
+      }
+    );
+  }
 }
 
 export const apiClient = new ApiClient();
+
+export async function resolveBackendBatchId(selectedBatchId: string | null): Promise<string> {
+  if (!selectedBatchId) return '';
+  try {
+    const backendBatches = await apiClient.listBatches();
+
+    // 1. Direct UUID match
+    const byId = backendBatches.find((b) => b.id === selectedBatchId);
+    if (byId) return byId.id;
+
+    // 2. Fetch local batch info from Dexie
+    const localBatch = await db.batches.get(selectedBatchId);
+    const code = (localBatch?.externalBatchId || '').toLowerCase().trim();
+    const name = (localBatch?.name || '').toLowerCase().trim();
+    const target = selectedBatchId.toLowerCase().trim();
+    const stripped = target.replace(/^batch[-_]/i, '');
+
+    // 3. EXACT match on externalBatchId (e.g. 'B49' === 'B49', or 'BATCH-15748_f261f305' === 'BATCH-15748_f261f305')
+    if (code) {
+      const byExactCode = backendBatches.find(
+        (b) => b.externalBatchId.toLowerCase().trim() === code
+      );
+      if (byExactCode) return byExactCode.id;
+    }
+
+    // 4. EXACT match on name (e.g. 'AFSD' === 'AFSD', or 'Batch 15748' === 'Batch 15748')
+    if (name) {
+      const byExactName = backendBatches.find(
+        (b) => b.name.toLowerCase().trim() === name
+      );
+      if (byExactName) return byExactName.id;
+    }
+
+    // 5. EXACT match of selectedBatchId against externalBatchId or name
+    const byTargetExact = backendBatches.find(
+      (b) =>
+        b.externalBatchId.toLowerCase().trim() === target ||
+        b.name.toLowerCase().trim() === target ||
+        b.externalBatchId.toLowerCase().trim() === stripped ||
+        b.name.toLowerCase().trim() === stripped
+    );
+    if (byTargetExact) return byTargetExact.id;
+
+    // 6. Prefix match on code (e.g. 'BATCH-15748' matches 'BATCH-15748_f261f305')
+    if (code) {
+      const byCodePrefix = backendBatches.find((b) => {
+        const bCode = b.externalBatchId.toLowerCase().trim();
+        return bCode.startsWith(code) || code.startsWith(bCode);
+      });
+      if (byCodePrefix) return byCodePrefix.id;
+    }
+
+    // 7. Substring fallback ONLY if no exact match exists anywhere
+    const candidates = backendBatches.filter((b) => {
+      const bCode = b.externalBatchId.toLowerCase().trim();
+      const bName = b.name.toLowerCase().trim();
+      return (
+        (name && (bName.includes(name) || name.includes(bName))) ||
+        (code && (bCode.includes(code) || code.includes(bCode))) ||
+        bName.includes(target) ||
+        bCode.includes(target)
+      );
+    });
+
+    if (candidates.length > 0) {
+      if (code) {
+        const matchingCode = candidates.find((c) =>
+          c.externalBatchId.toLowerCase().includes(code)
+        );
+        if (matchingCode) return matchingCode.id;
+      }
+      return candidates[0].id;
+    }
+
+    if (localBatch?.externalBatchId) return localBatch.externalBatchId;
+  } catch (err) {
+    console.warn('Failed to resolve backend batch ID:', err);
+  }
+  return selectedBatchId;
+}

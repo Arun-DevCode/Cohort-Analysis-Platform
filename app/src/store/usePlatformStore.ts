@@ -11,6 +11,8 @@ export type ActiveTab =
   | 'students'
   | 'compare'
   | 'atrisk'
+  | 'dropout'
+  | 'completion'
   | 'reports'
   | 'backup'
   | 'settings';
@@ -24,6 +26,7 @@ interface PlatformState {
   isUploadBatchLocked: boolean;
   comparePreselected: { leftId: string; rightId: string } | null;
   selectedStudentId: string | null;
+  settingsSubTab: 'general' | 'schedule';
 
   // Backend Connection State
   backendConnected: boolean;
@@ -34,6 +37,7 @@ interface PlatformState {
   setSelectedBatchId: (batchId: string | null) => void;
   setSelectedSnapshotId: (snapshotId: string | null) => void;
   setActiveTab: (tab: ActiveTab) => void;
+  setSettingsSubTab: (subTab: 'general' | 'schedule') => void;
   setUploadModalOpen: (open: boolean, lockBatch?: boolean) => void;
   setComparePreselected: (selection: { leftId: string; rightId: string } | null) => void;
   setLoginModalOpen: (open: boolean) => void;
@@ -78,17 +82,52 @@ function setStoredSelection(userId?: string, selection?: { batchId: string | nul
   }
 }
 
+function getStoredTab(): ActiveTab {
+  try {
+    const raw = localStorage.getItem('spp_active_tab') as ActiveTab | null;
+    const validTabs: ActiveTab[] = [
+      'overview',
+      'assignments',
+      'content',
+      'attendance',
+      'students',
+      'compare',
+      'atrisk',
+      'dropout',
+      'completion',
+      'reports',
+      'backup',
+      'settings',
+    ];
+    if (raw && validTabs.includes(raw)) return raw;
+  } catch {
+    // ignore
+  }
+  return 'overview';
+}
+
+function getStoredSettingsSubTab(): 'general' | 'schedule' {
+  try {
+    const raw = localStorage.getItem('spp_settings_sub_tab');
+    if (raw === 'schedule' || raw === 'general') return raw;
+  } catch {
+    // ignore
+  }
+  return 'general';
+}
+
 const initialSelection = getStoredSelection(apiClient.getUser()?.id);
 
 export const usePlatformStore = create<PlatformState>((set, get) => ({
   selectedBatchId: initialSelection.batchId,
   selectedSnapshotId: initialSelection.snapshotId,
-  activeTab: 'overview',
+  activeTab: getStoredTab(),
   settings: DEFAULT_SETTINGS,
   isUploadModalOpen: false,
   isUploadBatchLocked: false,
   comparePreselected: null,
   selectedStudentId: null,
+  settingsSubTab: getStoredSettingsSubTab(),
 
   backendConnected: false,
   backendUser: apiClient.getUser(),
@@ -110,7 +149,22 @@ export const usePlatformStore = create<PlatformState>((set, get) => ({
       });
       return { selectedSnapshotId: snapshotId };
     }),
-  setActiveTab: (tab) => set({ activeTab: tab }),
+  setActiveTab: (tab) => {
+    try {
+      localStorage.setItem('spp_active_tab', tab);
+    } catch {
+      // ignore
+    }
+    set({ activeTab: tab });
+  },
+  setSettingsSubTab: (subTab) => {
+    try {
+      localStorage.setItem('spp_settings_sub_tab', subTab);
+    } catch {
+      // ignore
+    }
+    set({ settingsSubTab: subTab });
+  },
   setUploadModalOpen: (open, lockBatch = false) =>
     set({ isUploadModalOpen: open, isUploadBatchLocked: lockBatch }),
   setComparePreselected: (selection) => set({ comparePreselected: selection }),

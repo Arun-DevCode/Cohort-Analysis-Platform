@@ -9,9 +9,14 @@ import {
   students,
   followups,
 } from '../db/schema/index.js';
-import { and, eq, inArray, or } from 'drizzle-orm';
+import { and, eq, inArray, or, sql, desc } from 'drizzle-orm';
 
 export type EntityType = 'batch' | 'student' | 'snapshot' | 'upload' | 'followup';
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function isUuid(val: string): boolean {
+  return UUID_REGEX.test(val);
+}
 
 export function requireBatchAccess(entityType: EntityType = 'batch') {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -36,8 +41,37 @@ export function requireBatchAccess(entityType: EntityType = 'batch') {
       let resolvedBatchIds: string[] = [];
 
       if (entityType === 'batch') {
+        const isTargetUuid = isUuid(targetId);
+        const lower = targetId.trim().toLowerCase();
+        const stripped = lower.replace(/^batch[-_]/i, '');
+
         const batch = await db.query.batches.findFirst({
-          where: eq(batches.id, targetId),
+          where: isTargetUuid
+            ? or(
+                eq(batches.id, targetId),
+                sql`lower(${batches.externalBatchId}) = ${lower}`,
+                sql`lower(${batches.name}) = ${lower}`
+              )
+            : or(
+                sql`lower(${batches.externalBatchId}) = ${lower}`,
+                sql`lower(${batches.name}) = ${lower}`,
+                sql`lower(${batches.externalBatchId}) = ${stripped}`,
+                sql`lower(${batches.name}) = ${stripped}`,
+                sql`lower(${batches.externalBatchId}) LIKE ${'%' + stripped + '%'}`,
+                sql`lower(${batches.name}) LIKE ${'%' + stripped + '%'}`
+              ),
+          orderBy: [
+            sql`CASE
+              WHEN ${batches.id} = ${targetId.trim()} THEN 0
+              WHEN lower(${batches.externalBatchId}) = ${lower} THEN 1
+              WHEN lower(${batches.name}) = ${lower} THEN 2
+              WHEN lower(${batches.externalBatchId}) = ${stripped} THEN 3
+              WHEN lower(${batches.name}) = ${stripped} THEN 4
+              ELSE 5
+            END`,
+            ...(role === 'trainer' ? [sql`CASE WHEN ${batches.createdBy} = ${userId} THEN 0 ELSE 1 END`] : []),
+            desc(batches.createdAt),
+          ],
         });
 
         if (!batch) {
@@ -51,8 +85,16 @@ export function requireBatchAccess(entityType: EntityType = 'batch') {
           return;
         }
 
+        // Normalize param to resolved UUID so downstream handlers receive a valid UUID
+        if (req.params.id) req.params.id = batch.id;
+        if (req.params.batchId) req.params.batchId = batch.id;
+
         resolvedBatchIds = [batch.id];
       } else if (entityType === 'upload') {
+        if (!isUuid(targetId)) {
+          res.status(404).json({ code: 'NOT_FOUND', message: 'Upload not found' });
+          return;
+        }
         const upload = await db.query.uploads.findFirst({
           where: eq(uploads.id, targetId),
         });
@@ -64,6 +106,10 @@ export function requireBatchAccess(entityType: EntityType = 'batch') {
 
         resolvedBatchIds = [upload.batchId];
       } else if (entityType === 'snapshot') {
+        if (!isUuid(targetId)) {
+          res.status(404).json({ code: 'NOT_FOUND', message: 'Snapshot not found' });
+          return;
+        }
         const snapshot = await db.query.snapshots.findFirst({
           where: eq(snapshots.id, targetId),
         });
@@ -75,8 +121,11 @@ export function requireBatchAccess(entityType: EntityType = 'batch') {
 
         resolvedBatchIds = [snapshot.batchId];
       } else if (entityType === 'student') {
+        const isTargetUuid = isUuid(targetId);
         const student = await db.query.students.findFirst({
-          where: eq(students.id, targetId),
+          where: isTargetUuid
+            ? or(eq(students.id, targetId), eq(students.phoneE164, targetId), eq(students.externalStudentId, targetId))
+            : or(eq(students.phoneE164, targetId), eq(students.externalStudentId, targetId)),
         });
 
         if (!student) {
@@ -84,10 +133,12 @@ export function requireBatchAccess(entityType: EntityType = 'batch') {
           return;
         }
 
+        if (req.params.id) req.params.id = student.id;
+
         const studentBatches = await db
           .select({ batchId: batchStudents.batchId })
           .from(batchStudents)
-          .where(eq(batchStudents.studentId, targetId));
+          .where(eq(batchStudents.studentId, student.id));
 
         resolvedBatchIds = studentBatches.map((b) => b.batchId);
         if (resolvedBatchIds.length === 0) {
@@ -95,6 +146,10 @@ export function requireBatchAccess(entityType: EntityType = 'batch') {
           return;
         }
       } else if (entityType === 'followup') {
+        if (!isUuid(targetId)) {
+          res.status(404).json({ code: 'NOT_FOUND', message: 'Follow-up not found' });
+          return;
+        }
         const followup = await db.query.followups.findFirst({
           where: eq(followups.id, targetId),
         });

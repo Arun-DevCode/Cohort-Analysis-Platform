@@ -7,6 +7,9 @@ import {
   AssignTrainersInput,
 } from '../validators/batch.validator.js';
 import { AuditService } from '../services/audit.service.js';
+import { getDb } from '../db/client.js';
+import { reportFiles } from '../db/schema/index.js';
+import { eq } from 'drizzle-orm';
 
 export class BatchController {
   static async listBatches(req: Request, res: Response, next: NextFunction): Promise<void> {
@@ -121,6 +124,18 @@ export class BatchController {
         res.status(404).json({
           code: 'NOT_FOUND',
           message: 'Batch not found',
+        });
+        return;
+      }
+
+      const db = getDb();
+      const storedFiles = await db.query.reportFiles.findFirst({
+        where: eq(reportFiles.batchId, id),
+      });
+      if (storedFiles) {
+        res.status(409).json({
+          code: 'BATCH_HAS_STORED_FILES',
+          message: 'Cannot delete batch with stored report files. Please delete all stored reports first.',
         });
         return;
       }

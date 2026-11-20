@@ -6,6 +6,7 @@ import { studentRouter } from './student.routes.js';
 import { followupRouter } from './followup.routes.js';
 import { settingsRouter } from './settings.routes.js';
 import { auditRouter } from './audit.routes.js';
+import { fileRouter } from './file.routes.js';
 import { UploadController } from '../controllers/upload.controller.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { authorize } from '../middleware/authorize.js';
@@ -37,6 +38,7 @@ apiRouter.use('/students', studentRouter);
 apiRouter.use('/followups', followupRouter);
 apiRouter.use('/settings', settingsRouter);
 apiRouter.use('/audit-logs', auditRouter);
+apiRouter.use('/files', fileRouter);
 
 import { requireBatchAccess } from '../middleware/requireBatchAccess.js';
 

@@ -22,3 +22,21 @@ export const batchIdParamSchema = z.object({
 export type CreateBatchInput = z.infer<typeof createBatchSchema>;
 export type UpdateBatchInput = z.infer<typeof updateBatchSchema>;
 export type AssignTrainersInput = z.infer<typeof assignTrainersSchema>;
+
+export const updateAssignmentScheduleSchema = z.object({
+  schedule: z.array(
+    z.object({
+      lmsAssignmentName: z.string().min(1),
+      roadmapKey: z.string().nullable().optional(),
+      type: z.enum(['regular', 'module_end']).default('regular'),
+      dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'dueDate must be YYYY-MM-DD').nullable().optional(),
+    })
+  ),
+});
+
+export const latenessQuerySchema = z.object({
+  snapshotId: z.string().min(1, 'snapshotId is required'),
+});
+
+export type UpdateAssignmentScheduleInput = z.infer<typeof updateAssignmentScheduleSchema>;
+export type LatenessQueryInput = z.infer<typeof latenessQuerySchema>;

@@ -20,6 +20,8 @@ import {
   LogOut,
   Trash2,
   MoreHorizontal,
+  UserMinus,
+  Target,
 } from 'lucide-react';
 import { cn, formatSnapshotDate } from '@/lib/utils';
 
@@ -77,6 +79,8 @@ export const Navbar: React.FC<NavbarProps> = ({ batches, snapshots }) => {
     { id: 'students', label: 'Students', icon: <Users className="w-3.5 h-3.5" /> },
     { id: 'compare', label: 'Compare', icon: <GitCompare className="w-3.5 h-3.5" /> },
     { id: 'atrisk', label: 'At-Risk', icon: <AlertOctagon className="w-3.5 h-3.5" /> },
+    { id: 'dropout', label: 'Drop-out', icon: <UserMinus className="w-3.5 h-3.5" /> },
+    { id: 'completion', label: 'Completion', icon: <Target className="w-3.5 h-3.5" /> },
     { id: 'reports', label: 'Reports', icon: <FileDown className="w-3.5 h-3.5" /> },
     { id: 'backup', label: 'Backup', icon: <Database className="w-3.5 h-3.5" /> },
     { id: 'settings', label: 'Settings', icon: <SettingsIcon className="w-3.5 h-3.5" /> },
@@ -328,7 +332,7 @@ export const Navbar: React.FC<NavbarProps> = ({ batches, snapshots }) => {
 
       {/* Navigation Tabs Bar */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 overflow-x-auto no-scrollbar">
-        <nav className="flex space-x-1 py-1.5" aria-label="Main Navigation">
+        <nav className="flex items-center space-x-1 py-1.5" aria-label="Main Navigation">
           {tabs.map((tab) => {
             const isActive = activeTab === tab.id;
             return (

@@ -12,6 +12,8 @@ import {
   primaryKey,
   uniqueIndex,
   index,
+  boolean,
+  bigint,
 } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
@@ -261,6 +263,58 @@ export const auditLogs = pgTable('audit_logs', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
+// 17. Report Files
+export const reportFiles = pgTable(
+  'report_files',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    batchId: uuid('batch_id')
+      .notNull()
+      .references(() => batches.id, { onDelete: 'restrict' }),
+    snapshotId: uuid('snapshot_id').references(() => snapshots.id, { onDelete: 'set null' }),
+    kind: varchar('kind', { length: 32 }).notNull(), // 'lms_cumulative' | 'academic'
+    version: integer('version').notNull(),
+    isCurrent: boolean('is_current').default(true).notNull(),
+    originalName: varchar('original_name', { length: 255 }).notNull(),
+    sizeBytes: bigint('size_bytes', { mode: 'number' }).notNull(),
+    sha256: varchar('sha256', { length: 64 }).notNull(),
+    objectKey: text('object_key').notNull(),
+    contentType: varchar('content_type', { length: 100 })
+      .default('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      .notNull(),
+    uploadedBy: uuid('uploaded_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    uploadedAt: timestamp('uploaded_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex('report_files_batch_kind_sha256_unique').on(t.batchId, t.kind, t.sha256),
+    index('report_files_batch_kind_idx').on(t.batchId, t.kind),
+    index('report_files_snapshot_id_idx').on(t.snapshotId),
+  ]
+);
+
+// 18. Assignment Schedule
+export const assignmentSchedule = pgTable(
+  'assignment_schedule',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    batchId: uuid('batch_id')
+      .notNull()
+      .references(() => batches.id, { onDelete: 'restrict' }),
+    lmsAssignmentName: varchar('lms_assignment_name', { length: 255 }).notNull(),
+    roadmapKey: varchar('roadmap_key', { length: 255 }),
+    type: varchar('type', { length: 32 }).default('regular').notNull(),
+    dueDate: date('due_date'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex('assignment_schedule_batch_lms_name_unique').on(t.batchId, t.lmsAssignmentName),
+    index('assignment_schedule_batch_id_idx').on(t.batchId),
+  ]
+);
+
 // Relations
 export const usersRelations = relations(users, ({ many }) => ({
   createdBatches: many(batches),
@@ -280,6 +334,8 @@ export const batchesRelations = relations(batches, ({ one, many }) => ({
   students: many(batchStudents),
   snapshots: many(snapshots),
   uploads: many(uploads),
+  reportFiles: many(reportFiles),
+  assignmentSchedules: many(assignmentSchedule),
 }));
 
 export const batchTrainersRelations = relations(batchTrainers, ({ one }) => ({
@@ -336,4 +392,45 @@ export const snapshotsRelations = relations(snapshots, ({ one, many }) => ({
   weeklyConsumption: many(weeklyConsumption),
   sessions: many(sessions),
   followups: many(followups),
+  reportFiles: many(reportFiles),
+}));
+
+export const reportFilesRelations = relations(reportFiles, ({ one }) => ({
+  batch: one(batches, {
+    fields: [reportFiles.batchId],
+    references: [batches.id],
+  }),
+  snapshot: one(snapshots, {
+    fields: [reportFiles.snapshotId],
+    references: [snapshots.id],
+  }),
+  uploader: one(users, {
+    fields: [reportFiles.uploadedBy],
+    references: [users.id],
+  }),
+}));
+
+export const assignmentScheduleRelations = relations(assignmentSchedule, ({ one }) => ({
+  batch: one(batches, {
+    fields: [assignmentSchedule.batchId],
+    references: [batches.id],
+  }),
+}));
+
+import { batchDropoutSettings } from './batchDropoutSettings.js';
+export * from './batchDropoutSettings.js';
+export const batchDropoutSettingsRelations = relations(batchDropoutSettings, ({ one }) => ({
+  batch: one(batches, {
+    fields: [batchDropoutSettings.batchId],
+    references: [batches.id],
+  }),
+}));
+
+import { batchCompletionSettings } from './batchCompletionSettings.js';
+export * from './batchCompletionSettings.js';
+export const batchCompletionSettingsRelations = relations(batchCompletionSettings, ({ one }) => ({
+  batch: one(batches, {
+    fields: [batchCompletionSettings.batchId],
+    references: [batches.id],
+  }),
 }));

@@ -4,6 +4,10 @@ import { env } from '../config/env.js';
 import * as schema from './schema/index.js';
 import { logger } from '../utils/logger.js';
 
+// Ensure DATE (OID 1082) columns are returned as pure ISO 'YYYY-MM-DD' strings,
+// preventing automatic UTC conversion timezone shifting in Node.js
+pg.types.setTypeParser(1082, (val: string) => val);
+
 const { Pool } = pg;
 
 export type AppDatabase = NodePgDatabase<typeof schema>;

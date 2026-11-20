@@ -240,13 +240,26 @@ export async function parseWorkbook(
         const cellVal = row[colName];
         const { status, score } = parseAssignmentCell(cellVal);
         const cleanAssignmentName = colName.replace(/\s*\(Status\s*\/\s*Score\)/i, '').trim();
+        const isModuleEnd = /module[- ]?end/i.test(cleanAssignmentName);
+        const isCapstone = /capstone/i.test(cleanAssignmentName);
+        const isCodeathon = /codeathon/i.test(cleanAssignmentName);
+        const isMcq = /mcq/i.test(cleanAssignmentName);
+        const dynamicMaxScore = isModuleEnd
+          ? 25
+          : isCapstone
+          ? 50
+          : isCodeathon
+          ? 60
+          : isMcq
+          ? 40
+          : (score !== null && score > 10 ? Math.max(score, 25) : 10);
 
         assignmentResults.push({
           studentId,
           assignmentName: cleanAssignmentName,
           status,
           score,
-          maxScore: 10,
+          maxScore: dynamicMaxScore,
         });
       }
     }

@@ -2,6 +2,7 @@ import React, { useEffect, lazy, Suspense } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { usePlatformStore } from '@/store/usePlatformStore';
 import { db } from '@/core/db';
+import { apiClient } from '@/core/api/client';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Navbar } from '@/app/Navbar';
 import { AuthPage } from '@/features/auth/AuthPage';
@@ -17,6 +18,8 @@ const AttendanceView = lazy(() => import('@/features/attendance/AttendanceView')
 const StudentProfileView = lazy(() => import('@/features/students/StudentProfileView').then((m) => ({ default: m.StudentProfileView })));
 const CompareView = lazy(() => import('@/features/compare/CompareView').then((m) => ({ default: m.CompareView })));
 const AtRiskView = lazy(() => import('@/features/atrisk/AtRiskView').then((m) => ({ default: m.AtRiskView })));
+const DropoutView = lazy(() => import('@/features/dropout/DropoutView').then((m) => ({ default: m.DropoutView })));
+const CompletionView = lazy(() => import('@/features/completion/CompletionView').then((m) => ({ default: m.CompletionView })));
 const ReportsView = lazy(() => import('@/features/reports/ReportsView').then((m) => ({ default: m.ReportsView })));
 const BackupView = lazy(() => import('@/features/backup/BackupView').then((m) => ({ default: m.BackupView })));
 const SettingsView = lazy(() => import('@/features/settings/SettingsView').then((m) => ({ default: m.SettingsView })));
@@ -47,6 +50,7 @@ export const App: React.FC = () => {
     hydrateAuth,
     checkBackendStatus,
     backendUser,
+    backendConnected,
   } = usePlatformStore(
     useShallow((s) => ({
       selectedBatchId: s.selectedBatchId,
@@ -59,6 +63,7 @@ export const App: React.FC = () => {
       hydrateAuth: s.hydrateAuth,
       checkBackendStatus: s.checkBackendStatus,
       backendUser: s.backendUser,
+      backendConnected: s.backendConnected,
     }))
   );
 
@@ -66,38 +71,38 @@ export const App: React.FC = () => {
     loadSettings();
     hydrateAuth();
     checkBackendStatus();
+  }, [loadSettings, hydrateAuth, checkBackendStatus]);
 
-    // Automatically purge all legacy demo / sample learner data from IndexedDB
-    const purgeAllLearnerData = async () => {
-      try {
-        const hasPurgedFlag = localStorage.getItem('has_purged_learner_data_clean_slate_v6');
-        const legacyBatches = await db.batches
-          .filter((b) => b.id.includes('15748') || b.name.toLowerCase().includes('15748') || b.id.startsWith('batch_demo'))
-          .toArray();
-
-        if (!hasPurgedFlag || legacyBatches.length > 0) {
-          await Promise.all([
-            db.batches.clear(),
-            db.students.clear(),
-            db.snapshots.clear(),
-            db.studentSnapshots.clear(),
-            db.assignmentResults.clear(),
-            db.weeklyConsumption.clear(),
-            db.sessions.clear(),
-            db.attendance.clear(),
-            db.followups.clear(),
-          ]);
-          localStorage.setItem('has_purged_learner_data_clean_slate_v6', 'true');
-          setSelectedBatchId(null);
-          setSelectedSnapshotId(null);
-        }
-      } catch (err) {
-        console.error('Failed to purge learner data', err);
-      }
-    };
-
-    purgeAllLearnerData();
-  }, [loadSettings, hydrateAuth, checkBackendStatus, setSelectedBatchId, setSelectedSnapshotId]);
+  // Sync server batches into IndexedDB when backend is connected
+  useEffect(() => {
+    if (backendConnected && apiClient.isAuthenticated()) {
+      apiClient
+        .listBatches()
+        .then(async (serverBatches: any[]) => {
+          if (serverBatches && serverBatches.length > 0) {
+            for (const b of serverBatches) {
+              const exists = await db.batches.get(b.id);
+              if (!exists) {
+                await db.batches.put({
+                  id: b.id,
+                  name: b.name,
+                  externalBatchId: b.externalBatchId || undefined,
+                  createdAt: b.createdAt ? new Date(b.createdAt).getTime() : Date.now(),
+                });
+              } else if (exists.name !== b.name || exists.externalBatchId !== b.externalBatchId) {
+                await db.batches.update(b.id, {
+                  name: b.name,
+                  externalBatchId: b.externalBatchId || undefined,
+                });
+              }
+            }
+          }
+        })
+        .catch((err: any) => {
+          console.warn('Failed to sync backend batches:', err);
+        });
+    }
+  }, [backendConnected]);
 
   // Live queries from IndexedDB - scoped so inactive tab tables are not held in memory
   const liveBatches = useLiveQuery(() => db.batches.toArray());
@@ -322,7 +327,15 @@ export const App: React.FC = () => {
         ) : (
           /* Active Content Tabs */
           <div>
-            {currentBatch && currentSnapshot ? (
+            {activeTab === 'backup' ? (
+              <Suspense fallback={<ViewLoadingFallback />}>
+                <BackupView />
+              </Suspense>
+            ) : activeTab === 'settings' ? (
+              <Suspense fallback={<ViewLoadingFallback />}>
+                <SettingsView />
+              </Suspense>
+            ) : currentBatch && currentSnapshot ? (
               <Suspense fallback={<ViewLoadingFallback />}>
                 {activeTab === 'overview' && (
                   <OverviewDashboard
@@ -393,6 +406,20 @@ export const App: React.FC = () => {
                   />
                 )}
 
+                {activeTab === 'dropout' && (
+                  <DropoutView
+                    currentBatch={currentBatch}
+                    currentSnapshot={currentSnapshot}
+                  />
+                )}
+
+                {activeTab === 'completion' && (
+                  <CompletionView
+                    currentBatch={currentBatch}
+                    currentSnapshot={currentSnapshot}
+                  />
+                )}
+
                 {activeTab === 'reports' && (
                   <ReportsView
                     currentBatch={currentBatch}
@@ -403,10 +430,6 @@ export const App: React.FC = () => {
                     students={currentBatchStudents}
                   />
                 )}
-
-                {activeTab === 'backup' && <BackupView />}
-
-                {activeTab === 'settings' && <SettingsView />}
               </Suspense>
             ) : (
               <div className="rounded-[14px] bg-surface p-12 text-center shadow-[var(--shadow-tint-md)] max-w-md mx-auto my-12 space-y-4">

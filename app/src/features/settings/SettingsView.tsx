@@ -4,11 +4,18 @@ import { Button } from '@/ui/Button';
 import { Modal } from '@/ui/Modal';
 import { usePlatformStore } from '@/store/usePlatformStore';
 import { db } from '@/core/db';
-import { Sliders, EyeOff, Trash2, CheckCircle2 } from 'lucide-react';
+import { Sliders, EyeOff, Trash2, CheckCircle2, Calendar } from 'lucide-react';
+import { AssignmentScheduleView } from './AssignmentScheduleView';
 
 export const SettingsView: React.FC = () => {
-  const { settings, updateSettings, setSelectedBatchId, setSelectedSnapshotId } =
-    usePlatformStore();
+  const {
+    settings,
+    updateSettings,
+    setSelectedBatchId,
+    setSelectedSnapshotId,
+    settingsSubTab,
+    setSettingsSubTab,
+  } = usePlatformStore();
 
   const [high, setHigh] = useState(settings.highThreshold);
   const [medium, setMedium] = useState(settings.mediumThreshold);
@@ -43,8 +50,41 @@ export const SettingsView: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6 max-w-3xl mx-auto">
-      {/* Thresholds Form */}
+    <div className="space-y-6 max-w-5xl mx-auto">
+      {/* Sub-tab Navigation */}
+      <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
+        <button
+          type="button"
+          onClick={() => setSettingsSubTab('general')}
+          className={`flex items-center gap-2 px-3.5 py-2 text-xs font-medium rounded-lg transition-all ${
+            settingsSubTab === 'general'
+              ? 'bg-teal-50 text-teal-800 border border-teal-200 shadow-sm'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+          }`}
+        >
+          <Sliders className="w-3.5 h-3.5" />
+          General & Thresholds
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setSettingsSubTab('schedule')}
+          className={`flex items-center gap-2 px-3.5 py-2 text-xs font-medium rounded-lg transition-all ${
+            settingsSubTab === 'schedule'
+              ? 'bg-teal-50 text-teal-800 border border-teal-200 shadow-sm'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+          }`}
+        >
+          <Calendar className="w-3.5 h-3.5" />
+          Assignment Schedule
+        </button>
+      </div>
+
+      {settingsSubTab === 'schedule' ? (
+        <AssignmentScheduleView />
+      ) : (
+        <div className="space-y-6 max-w-3xl">
+          {/* Thresholds Form */}
       <Card
         title="Segmentation & Movement Thresholds"
         subtitle="Batch metrics and student segments recompute dynamically based on these settings"
@@ -199,5 +239,7 @@ export const SettingsView: React.FC = () => {
         </div>
       </Modal>
     </div>
+    )}
+  </div>
   );
 };

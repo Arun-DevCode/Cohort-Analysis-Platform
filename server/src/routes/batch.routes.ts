@@ -3,6 +3,10 @@ import { BatchController } from '../controllers/batch.controller.js';
 import { UploadController } from '../controllers/upload.controller.js';
 import { SnapshotController } from '../controllers/snapshot.controller.js';
 import { AnalyticsController } from '../controllers/analytics.controller.js';
+import { ReportFileController } from '../controllers/reportFile.controller.js';
+import { ScheduleController } from '../controllers/schedule.controller.js';
+import { DropoutController } from '../controllers/dropout.controller.js';
+import { CompletionController } from '../controllers/completion.controller.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { authorize, requireBatchAccess } from '../middleware/authorize.js';
 import { validate } from '../middleware/validate.js';
@@ -12,7 +16,13 @@ import {
   updateBatchSchema,
   assignTrainersSchema,
   batchIdParamSchema,
+  updateAssignmentScheduleSchema,
+  latenessQuerySchema,
 } from '../validators/batch.validator.js';
+import {
+  dropoutQuerySchema,
+  updateDropoutSettingsSchema,
+} from '../validators/dropout.validator.js';
 
 export const batchRouter = Router();
 
@@ -74,12 +84,45 @@ batchRouter.post(
   UploadController.uploadReport
 );
 
+// Upload academic workbook (admin or trainer with batch access)
+batchRouter.post(
+  '/:id/files/academic',
+  uploadSingleFile,
+  authorize(['admin', 'trainer']),
+  requireBatchAccess(),
+  ReportFileController.uploadAcademic
+);
+
+// List stored reports for batch
+batchRouter.get(
+  '/:id/files',
+  authorize(['admin', 'manager', 'trainer']),
+  requireBatchAccess(),
+  ReportFileController.listBatchFiles
+);
+
+// Set academic version as current
+batchRouter.patch(
+  '/:id/files/:fileId/current',
+  authorize(['admin', 'trainer']),
+  requireBatchAccess(),
+  ReportFileController.setCurrentVersion
+);
+
 // List snapshots (all roles with batch access)
 batchRouter.get(
   '/:id/snapshots',
   authorize(['admin', 'manager', 'trainer']),
   requireBatchAccess(),
   SnapshotController.listSnapshots
+);
+
+// Delete snapshot (admin only, verified batch access)
+batchRouter.delete(
+  '/:id/snapshots/:snapshotId',
+  authorize(['admin']),
+  requireBatchAccess(),
+  SnapshotController.deleteSnapshot
 );
 
 // B7: Overview (Scorecards, trend series, segments, top improvers, needs attention)
@@ -112,6 +155,66 @@ batchRouter.get(
   authorize(['admin', 'manager', 'trainer']),
   requireBatchAccess(),
   AnalyticsController.getAssignments
+);
+
+// Assignment late-submission estimates across chronological snapshots
+batchRouter.get(
+  '/:id/assignments/lateness',
+  authorize(['admin', 'manager', 'trainer']),
+  requireBatchAccess(),
+  validate({ query: latenessQuerySchema }),
+  ScheduleController.getLateness
+);
+
+// Assignment schedule: get and auto-match against current academic roadmap
+batchRouter.get(
+  '/:id/assignment-schedule',
+  authorize(['admin', 'manager', 'trainer']),
+  requireBatchAccess(),
+  ScheduleController.getSchedule
+);
+
+// Assignment schedule: update due dates & roadmap matches
+batchRouter.put(
+  '/:id/assignment-schedule',
+  authorize(['admin', 'trainer']),
+  requireBatchAccess(),
+  validate({ body: updateAssignmentScheduleSchema }),
+  ScheduleController.updateSchedule
+);
+
+// Stage 3: Drop-out risk report for selected snapshot
+batchRouter.get(
+  '/:id/dropout',
+  authorize(['admin', 'manager', 'trainer']),
+  requireBatchAccess(),
+  validate({ query: dropoutQuerySchema }),
+  DropoutController.getDropoutReport
+);
+
+// Stage 3: Update drop-out risk threshold settings
+batchRouter.put(
+  '/:id/dropout/settings',
+  authorize(['admin', 'trainer']),
+  requireBatchAccess(),
+  validate({ body: updateDropoutSettingsSchema }),
+  DropoutController.updateDropoutSettings
+);
+
+// Stage 4: Completion forecast report for selected snapshot
+batchRouter.get(
+  '/:id/completion',
+  authorize(['admin', 'manager', 'trainer']),
+  requireBatchAccess(),
+  CompletionController.getCompletionReport
+);
+
+// Stage 4: Update completion settings
+batchRouter.put(
+  '/:id/completion/settings',
+  authorize(['admin', 'trainer']),
+  requireBatchAccess(),
+  CompletionController.updateCompletionSettings
 );
 
 // B10: Week-wise content consumption matrix

@@ -1,6 +1,13 @@
 import { z } from 'zod';
 import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+dotenv.config({ path: path.resolve(__dirname, '../../../../server/.env') });
+dotenv.config({ path: path.resolve(__dirname, '../../../server/.env') });
 dotenv.config();
 
 const envSchema = z.object({
@@ -13,6 +20,10 @@ const envSchema = z.object({
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   INITIAL_ADMIN_EMAIL: z.string().email().default('admin@example.com'),
   INITIAL_ADMIN_PASSWORD: z.string().min(6).default('Admin@123456'),
+  NEON_STORAGE_ENDPOINT: z.string().optional(),
+  NEON_STORAGE_ACCESS_KEY_ID: z.string().optional(),
+  NEON_STORAGE_SECRET_ACCESS_KEY: z.string().optional(),
+  NEON_STORAGE_BUCKET: z.string().default('reports'),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -30,6 +41,12 @@ export const env = {
   isProduction: parsed.data.NODE_ENV === 'production',
   isDevelopment: parsed.data.NODE_ENV === 'development',
   isTest: parsed.data.NODE_ENV === 'test',
+  hasS3Config: Boolean(
+    parsed.data.NEON_STORAGE_ENDPOINT &&
+    parsed.data.NEON_STORAGE_ACCESS_KEY_ID &&
+    parsed.data.NEON_STORAGE_SECRET_ACCESS_KEY &&
+    parsed.data.NEON_STORAGE_BUCKET
+  ),
 };
 
 export type Env = typeof env;

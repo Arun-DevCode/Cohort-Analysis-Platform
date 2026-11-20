@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Modal } from '@/ui/Modal';
 import { Button } from '@/components/ui/button';
 import { saveSnapshotTransaction, checkExistingSnapshot } from '@/core/db/snapshotRepository';
@@ -18,9 +18,10 @@ import {
   Sparkles,
   ArrowRight,
   RotateCcw,
+  Upload,
 } from 'lucide-react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { apiClient } from '@/core/api/client';
+import { apiClient, resolveBackendBatchId } from '@/core/api/client';
 
 export const UploadModal: React.FC = () => {
   const {
@@ -56,6 +57,65 @@ export const UploadModal: React.FC = () => {
     shortReason: string;
     details: string[];
   } | null>(null);
+
+  const [academicSheetStatus, setAcademicSheetStatus] = useState<{
+    checked: boolean;
+    hasSheet: boolean;
+    batchExists?: boolean;
+    fileName?: string;
+  }>({ checked: false, hasSheet: false });
+  const [selectedAcademicFile, setSelectedAcademicFile] = useState<File | null>(null);
+  const academicInputRef = useRef<HTMLInputElement>(null);
+
+  const checkAcademicSheetForBatch = useCallback(
+    async (targetId: string, currentName?: string, currentCode?: string) => {
+      if (!backendConnected || !apiClient.isAuthenticated()) {
+        setAcademicSheetStatus({ checked: false, hasSheet: false });
+        return;
+      }
+      try {
+        let resolvedId = '';
+        if (targetId && !targetId.startsWith('batch_')) {
+          resolvedId = await resolveBackendBatchId(targetId);
+        }
+        if (!resolvedId && currentCode) {
+          resolvedId = await resolveBackendBatchId(currentCode);
+        }
+        if (!resolvedId && currentName) {
+          resolvedId = await resolveBackendBatchId(currentName);
+        }
+
+        if (resolvedId) {
+          const files = await apiClient.listBatchFiles(resolvedId);
+          const academic =
+            files.find((f) => f.kind === 'academic' && f.isCurrent) ||
+            files.find((f) => f.kind === 'academic');
+          if (academic) {
+            setAcademicSheetStatus({
+              checked: true,
+              hasSheet: true,
+              batchExists: true,
+              fileName: academic.originalName,
+            });
+            return;
+          }
+          setAcademicSheetStatus({ checked: true, hasSheet: false, batchExists: true });
+          return;
+        }
+
+        setAcademicSheetStatus({ checked: true, hasSheet: false, batchExists: false });
+      } catch {
+        setAcademicSheetStatus({ checked: true, hasSheet: false, batchExists: false });
+      }
+    },
+    [backendConnected]
+  );
+
+  useEffect(() => {
+    if (isUploadModalOpen && (batchId || batchName || batchCode)) {
+      checkAcademicSheetForBatch(batchId, batchName, batchCode);
+    }
+  }, [batchId, batchName, batchCode, isUploadModalOpen, checkAcademicSheetForBatch]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -99,6 +159,9 @@ export const UploadModal: React.FC = () => {
     setIsSaving(false);
     setErrorMsg(null);
     setCompatibilityError(null);
+    setSelectedAcademicFile(null);
+    setAcademicSheetStatus({ checked: false, hasSheet: false });
+    if (academicInputRef.current) academicInputRef.current.value = '';
   };
 
   const handleClose = () => {
@@ -373,13 +436,22 @@ export const UploadModal: React.FC = () => {
               snapshotDate
             );
           }
-          await apiClient.uploadReport(
-            backendBatch.id,
-            file,
-            file.name,
-            snapshotDate,
-            isOverwriting
-          );
+          if (file) {
+            await apiClient.uploadReport(
+              backendBatch.id,
+              file,
+              file.name,
+              snapshotDate,
+              isOverwriting
+            );
+          }
+          if (selectedAcademicFile) {
+            await apiClient.uploadAcademicWorkbook(
+              backendBatch.id,
+              selectedAcademicFile,
+              selectedAcademicFile.name
+            );
+          }
         } catch (syncErr) {
           console.warn('Backend server sync note:', syncErr);
         }
@@ -488,6 +560,86 @@ export const UploadModal: React.FC = () => {
             />
           </div>
         </div>
+
+        {/* Batch Academic Roadmap Status & Attach Option */}
+        {(batchId || batchName) && (
+          <div className="space-y-2">
+            {academicSheetStatus.checked && academicSheetStatus.hasSheet && (
+              <div className="p-2.5 bg-emerald-50 text-emerald-900 rounded-[10px] border border-emerald-200 text-xs flex items-center justify-between gap-2 shadow-xs">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <div>
+                    <p className="font-semibold text-[11px] text-emerald-950">
+                      Batch already exists with Academic Sheet
+                    </p>
+                    <p className="text-[10px] text-emerald-700">
+                      {academicSheetStatus.fileName} (Late-submission analytics & deadlines active)
+                    </p>
+                  </div>
+                </div>
+                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 shrink-0">
+                  Roadmap Active
+                </span>
+              </div>
+            )}
+
+            {academicSheetStatus.checked && !academicSheetStatus.hasSheet && (
+              <div className="p-3 bg-amber-50/90 text-amber-950 rounded-[10px] border border-amber-200 text-xs space-y-2 shadow-xs">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <p className="font-semibold text-[11px] text-amber-950">
+                      {academicSheetStatus.batchExists ? 'Batch exists · ' : ''}No Academic Sheet Attached
+                    </p>
+                    <p className="text-[10px] text-amber-800 mt-0.5 leading-relaxed">
+                      Upload the academic sheet of this report to improve analysis experience, enable automated deadline matching, and calculate late submissions.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 pt-1.5 border-t border-amber-200/60">
+                  <input
+                    ref={academicInputRef}
+                    type="file"
+                    accept=".xlsx"
+                    className="hidden"
+                    onChange={(e) => {
+                      if (e.target.files?.[0]) {
+                        setSelectedAcademicFile(e.target.files[0]);
+                      }
+                    }}
+                  />
+                  {selectedAcademicFile ? (
+                    <div className="flex items-center justify-between w-full bg-white p-1.5 px-2.5 rounded-md border border-amber-300 text-[11px]">
+                      <span className="truncate font-mono font-medium text-slate-800">
+                        📄 {selectedAcademicFile.name} ({(selectedAcademicFile.size / 1024).toFixed(1)} KB)
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedAcademicFile(null)}
+                        className="text-amber-800 hover:text-amber-950 font-bold ml-2 text-xs"
+                        title="Remove attached academic workbook"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ) : (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => academicInputRef.current?.click()}
+                      className="text-[11px] h-7 px-2.5 bg-white text-amber-900 border-amber-300 hover:bg-amber-100/60 font-medium"
+                    >
+                      <Upload className="w-3 h-3 mr-1 text-amber-700" />
+                      Attach Academic Sheet (.xlsx)
+                    </Button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Dropzone */}
         {!parseResult && !isParsing && (

@@ -4,6 +4,8 @@ import { UploadView } from '../views/upload.view.js';
 import { getDb } from '../db/client.js';
 import { batches, batchTrainers, uploads } from '../db/schema/index.js';
 import { and, eq } from 'drizzle-orm';
+import { ReportFileService } from '../services/reportFile.service.js';
+import { logger } from '../utils/logger.js';
 
 export class UploadController {
   static async uploadReport(req: Request, res: Response, next: NextFunction): Promise<void> {
@@ -82,6 +84,22 @@ export class UploadController {
           errorReport: result.errorReport,
         });
         return;
+      }
+
+      if (result.snapshot?.snapshotId) {
+        try {
+          await ReportFileService.saveLmsReportFile({
+            batchId: targetBatch.id,
+            snapshotId: result.snapshot.snapshotId,
+            ownerId: targetBatch.createdBy,
+            userId: req.user!.userId,
+            buffer: req.file.buffer,
+            fileName: req.file.originalname,
+            snapshotDate,
+          });
+        } catch (storageErr) {
+          logger.error({ err: storageErr }, 'Failed to persist original LMS file to object storage');
+        }
       }
 
       res.status(201).json({

@@ -15,7 +15,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       "/api": {
-        target: "https://api-cohortpregressreport.onrender.com",
+        target: "http://localhost:4000",
         changeOrigin: true,
         configure: (proxy) => {
           proxy.on("error", (_err, _req, res) => {

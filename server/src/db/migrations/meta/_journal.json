@@ -22,6 +22,34 @@
       "when": 1793086239036,
       "tag": "0002_confused_texas_twister",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1793100000000,
+      "tag": "0003_report_files",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1793110000000,
+      "tag": "0004_assignment_schedule",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1793120000000,
+      "tag": "0005_batch_dropout_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793130000000,
+      "tag": "0006_batch_completion_settings",
+      "breakpoints": true
     }
   ]
 }
